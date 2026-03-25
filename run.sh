@@ -6,6 +6,7 @@ CONFIG="$SCRIPT_DIR/config.json"
 LOCK_FILE="$SCRIPT_DIR/.lock"
 
 INTERVAL=$(jq -r '.polling.intervalSeconds' "$CONFIG")
+IDLE_INTERVAL=$(jq -r '.polling.idleIntervalSeconds // 3600' "$CONFIG")
 MAX_TURNS=$(jq -r '.claude.maxTurns' "$CONFIG")
 MODEL=$(jq -r '.claude.model' "$CONFIG")
 
@@ -33,10 +34,10 @@ if [ -f "$LOCK_FILE" ]; then
 fi
 echo $$ > "$LOCK_FILE"
 
-log "Dev bot started. Polling every ${INTERVAL}s."
+log "Dev bot started. Active interval: ${INTERVAL}s. Idle interval: ${IDLE_INTERVAL}s."
 
 while true; do
-  log "Running agent..."
+  log "Running agent cycle..."
 
   cd "$SCRIPT_DIR"
 
@@ -46,7 +47,7 @@ while true; do
     [ -f "$MCP_FILE" ] && MCP_ARGS+=(--mcp-config "$MCP_FILE")
   done
 
-  claude --print \
+  OUTPUT=$(claude --print \
     --verbose \
     --output-format stream-json \
     --max-turns "$MAX_TURNS" \
@@ -55,11 +56,19 @@ while true; do
     --allowedTools "Edit" "Write" "Read" "Glob" "Grep" "Bash" "LSP" \
       "mcp__mcp-atlassian__jira_search" "mcp__mcp-atlassian__jira_get_issue" \
       "mcp__mcp-atlassian__jira_add_comment" "mcp__mcp-atlassian__jira_update_issue" \
+      "mcp__mcp-atlassian__jira_get_transitions" "mcp__mcp-atlassian__jira_transition_issue" \
+      "mcp__mcp-atlassian__jira_get_user_profile" \
       "mcp__hcc-patternfly-data-view__*" \
-    -- "Follow the instructions in CLAUDE.md" 2>&1 | tee -a "$SCRIPT_DIR/bot.log" || {
+    -- "Follow the instructions in CLAUDE.md" 2>&1 | tee -a "$SCRIPT_DIR/bot.log") || {
     log "Agent run failed"
   }
 
-  log "Sleeping for ${INTERVAL}s..."
-  sleep "$INTERVAL"
+  # Check if there was no work found — use longer idle interval
+  if echo "$OUTPUT" | grep -q "NO_WORK_FOUND"; then
+    log "No work found. Sleeping for ${IDLE_INTERVAL}s..."
+    sleep "$IDLE_INTERVAL"
+  else
+    log "Cycle complete. Sleeping for ${INTERVAL}s..."
+    sleep "$INTERVAL"
+  fi
 done

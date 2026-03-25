@@ -6,5 +6,9 @@
   "astro-virtual-assistant-frontend": {
     "url": "git@github.com:RedHatInsights/astro-virtual-assistant-frontend.git",
     "persona": "frontend"
+  },
+  "widget-layout": {
+    "url": "git@github.com:RedHatInsights/widget-layout.git",
+    "persona": "frontend"
   }
 }

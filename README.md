@@ -2,16 +2,40 @@
 
 **Status: Proof of Concept**
 
-An autonomous developer bot that picks Jira tickets from the RHCLOUD board and implements them using Claude CLI. It searches for tickets with specific labels, clones the target repo, implements the change, pushes a branch, opens a PR, and reports back on Jira.
+An autonomous developer bot that picks groomed Jira tickets and implements them using Claude CLI. It maintains its own PRs (fixing CI, resolving conflicts, addressing review feedback) before picking up new work.
 
 ## How it works
 
-1. Polls Jira for unassigned tickets with `platform-experience-services` + `hcc-ai-framework` labels
+The bot runs in a loop with two priorities:
+
+### Priority 1: Maintain existing PRs
+Before looking for new work, the bot checks its open PRs (tracked in `state/open-prs.json`):
+- Fixes failing CI checks
+- Resolves merge conflicts
+- Addresses PR review feedback
+- Removes merged/closed PRs from tracking
+
+### Priority 2: Pick new Jira work
+Only when no PRs need attention, the bot searches for groomed tickets:
+1. Queries Jira for unassigned tickets with `platform-experience-services` + `hcc-ai-framework` labels
 2. Matches the ticket's `repo:<name>` label to a repo in `project-repos.json`
-3. Clones/checks out the repo, creates a `bot/<TICKET-KEY>` branch
-4. Loads the persona (e.g. `frontend`) for repo-specific guidelines and MCP tools
-5. Runs Claude CLI to implement the ticket
-6. Pushes the branch, opens a PR via `gh`, comments on the Jira ticket with the PR link
+3. Loads the persona (e.g. `frontend`) for repo-specific guidelines and MCP tools
+4. Implements the change, pushes a branch, opens a PR via `gh`
+5. Comments on the Jira ticket with a link to the PR
+
+If no work is found, the bot sleeps for 1 hour before checking again.
+
+## Jira grooming
+
+Tickets are not picked randomly from the backlog. They must be explicitly groomed for the bot:
+
+- **Label `hcc-ai-framework`** — marks the ticket as bot-eligible
+- **Label `repo:<name>`** — identifies the target repository (must match a key in `project-repos.json`)
+- **Label `platform-experience-services`** — team/project scope
+- **Clear description** — the ticket must have a clear description of the task and acceptance criteria
+- **Unassigned** — the bot only picks unassigned tickets
+
+Example: [RHCLOUD-46011](https://redhat.atlassian.net/browse/RHCLOUD-46011)
 
 ## Structure
 
@@ -19,9 +43,11 @@ An autonomous developer bot that picks Jira tickets from the RHCLOUD board and i
 dev-bot/
   run.sh                 # Main polling loop — launches Claude CLI
   init.sh                # Clones all repos, installs LSP dependencies
-  config.json            # Jira board, model, polling interval
+  config.json            # Jira board, model, polling intervals
   project-repos.json     # repo label -> git URL + persona mapping
   CLAUDE.md              # Agent instructions (full workflow)
+  state/
+    open-prs.json        # Tracks bot's open PRs for maintenance
   prompts/
     default.md           # Default coding guidelines
   personas/
@@ -51,7 +77,7 @@ cd dev-bot
 # Clone all target repos and install LSP deps
 ./init.sh
 
-# Run the bot (polls every 5 minutes)
+# Run the bot
 ./run.sh
 ```
 
@@ -67,19 +93,14 @@ cd dev-bot
 2. Add a `repo:my-repo` label to the Jira ticket
 3. Run `./init.sh` to clone it
 
-## Creating tickets for the bot
+## Example
 
-Tickets must have these labels:
-- `platform-experience-services`
-- `hcc-ai-framework`
-- `repo:<repo-name>` (must match a key in `project-repos.json`)
-
-The bot picks the highest priority unassigned ticket first.
+- Jira ticket: [RHCLOUD-46011](https://redhat.atlassian.net/browse/RHCLOUD-46011)
+- PR created by the bot: [astro-virtual-assistant-frontend#368](https://github.com/RedHatInsights/astro-virtual-assistant-frontend/pull/368)
 
 ## Next steps
 
 - **Containerize**: Create a container image with all dependencies (Claude CLI, gh, Node.js, LSP servers, jq) pre-installed and verify the full workflow runs inside it
-- **Claude service account**: Set up a dedicated Claude API account for the bot instead of using personal credentials
+- **Claude service account**: Set up a dedicated Claude API/Jira bot account instead of using personal credentials
 - **Deployment**: Deploy the container to a persistent environment (OpenShift, Kubernetes, etc.) with cron-based scheduling
-- **PR check monitoring**: Before picking new tickets, check existing bot PRs for failing CI checks and prioritize fixing them
-- **Expand personas**: Create specialized instruction sets for different task types (CVE remediation, dependency updates, test migration, etc.) beyond the current frontend/backend split
+- **Expand personas**: Add specialized personas for different task types (CVE remediation, dependency updates, test migration, etc.)
