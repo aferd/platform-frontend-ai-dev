@@ -58,6 +58,7 @@ while true; do
       "mcp__mcp-atlassian__jira_add_comment" "mcp__mcp-atlassian__jira_update_issue" \
       "mcp__mcp-atlassian__jira_get_transitions" "mcp__mcp-atlassian__jira_transition_issue" \
       "mcp__mcp-atlassian__jira_get_user_profile" \
+      "mcp__mcp-atlassian__jira_download_attachments" \
       "mcp__hcc-patternfly-data-view__*" \
     -- "Follow the instructions in CLAUDE.md" 2>&1 | tee -a "$SCRIPT_DIR/bot.log") || {
     log "Agent run failed"
