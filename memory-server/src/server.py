@@ -4,9 +4,10 @@ from pathlib import Path
 
 import uvicorn
 from fastmcp import FastMCP
+from starlette.applications import Starlette
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse
-from starlette.routing import Route, WebSocketRoute
+from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.websockets import WebSocket
 
 from .db import close_pool, init_pool
@@ -32,7 +33,6 @@ async def lifespan(app):
 
 mcp = FastMCP(
     name="Bot Memory",
-    lifespan=lifespan,
 )
 
 # Register MCP tools
@@ -90,7 +90,15 @@ async def ws_events(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    app = mcp.http_app(transport="sse")
-    # Add WebSocket route to the Starlette app
-    app.routes.append(WebSocketRoute("/ws", ws_events))
+    # Build the MCP SSE app (handles /sse and /messages/ endpoints + custom routes)
+    mcp_app = mcp.http_app(transport="sse")
+
+    # Wrap in an outer Starlette app so we can add WebSocket + lifespan
+    app = Starlette(
+        lifespan=lifespan,
+        routes=[
+            WebSocketRoute("/ws", ws_events),
+            Mount("/", app=mcp_app),
+        ],
+    )
     uvicorn.run(app, host="0.0.0.0", port=8080)
