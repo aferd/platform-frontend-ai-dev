@@ -1,7 +1,6 @@
 {
   "jira": {
-    "boardKey": "RHCLOUD",
-    "labels": ["platform-experience-services", "hcc-ai-framework"]
+    "boardKey": "RHCLOUD"
   },
   "claude": {
     "maxTurns": 100,

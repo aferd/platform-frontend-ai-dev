@@ -42,15 +42,24 @@ Only when everything is clean — no pending feedback, no interrupted work, all 
 Tickets must be explicitly groomed for the bot. The bot never picks random backlog items.
 
 **Required labels:**
-- `hcc-ai-framework` — marks the ticket as bot-eligible
+- A **primary label** (e.g. `hcc-ai-framework`, `hcc-ai-ui`) — marks the ticket as bot-eligible for a specific team. The bot is started with `--label <primary-label>` and only picks up tickets with that label.
 - `repo:<name>` — identifies the target repo (must match a key in `project-repos.json`)
-- `platform-experience-services` — team scope
 
 **Optional labels:**
 - `needs-investigation` — bot investigates and reports findings instead of implementing
 - `platform-experience-ui` — routes the ticket to the UI sprint instead of the framework sprint
 
 The bot assigns itself, transitions the ticket to "In Progress", adds it to the active sprint, and moves it to "Code Review" when the PR is opened. When the PR merges, it moves the ticket to "Done".
+
+### Grooming a ticket
+
+There's an interactive grooming prompt that walks you through preparing a ticket for the bot. Run it from this repo:
+
+```bash
+claude --prompt-file prompts/groom.md
+```
+
+It will ask about the problem, help identify the right repos, suggest labels, and produce a ready-to-create ticket with a proper title, description, and acceptance criteria.
 
 ## Memory system
 
@@ -116,8 +125,8 @@ dev-bot/
 # Clone and initialize (clones all repos, starts memory server)
 ./init.sh
 
-# Run the bot
-./run.sh
+# Run the bot for a specific team
+./run.sh --label hcc-ai-framework
 ```
 
 ## Adding a new repo
@@ -188,8 +197,8 @@ If you're using Chromium instead of Chrome, edit `start-chromium.sh` and replace
 # Full init first (clones repos, installs LSP, starts memory server)
 ./init.sh
 
-# Start the polling loop
-./run.sh
+# Start the polling loop for a specific team
+./run.sh --label hcc-ai-framework
 ```
 
 The bot logs to `bot.log` and stdout. Each cycle it:
@@ -207,7 +216,7 @@ claude --print \
     "mcp__mcp-atlassian__jira_*" \
     "mcp__chrome-devtools__*" \
     "mcp__bot-memory__*" \
-  -- "Follow the instructions in CLAUDE.md"
+  -- "Your primary label is: hcc-ai-framework. Follow the instructions in CLAUDE.md."
 ```
 
 ### 4. Configuration

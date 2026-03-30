@@ -5,6 +5,21 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG="$SCRIPT_DIR/config.json"
 LOCK_FILE="$SCRIPT_DIR/.lock"
 
+# Parse arguments
+PRIMARY_LABEL=""
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --label) PRIMARY_LABEL="$2"; shift 2 ;;
+    *) echo "Usage: $0 --label <primary-label>" >&2; exit 1 ;;
+  esac
+done
+
+if [ -z "$PRIMARY_LABEL" ]; then
+  echo "Error: --label is required (e.g. --label hcc-ai-framework)" >&2
+  echo "Usage: $0 --label <primary-label>" >&2
+  exit 1
+fi
+
 INTERVAL=$(jq -r '.polling.intervalSeconds' "$CONFIG")
 IDLE_INTERVAL=$(jq -r '.polling.idleIntervalSeconds // 3600' "$CONFIG")
 MAX_TURNS=$(jq -r '.claude.maxTurns' "$CONFIG")
@@ -34,7 +49,7 @@ if [ -f "$LOCK_FILE" ]; then
 fi
 echo $$ > "$LOCK_FILE"
 
-log "Dev bot started. Active interval: ${INTERVAL}s. Idle interval: ${IDLE_INTERVAL}s."
+log "Dev bot started. Label: ${PRIMARY_LABEL}. Active interval: ${INTERVAL}s. Idle interval: ${IDLE_INTERVAL}s."
 
 while true; do
   log "Running agent cycle..."
@@ -62,7 +77,7 @@ while true; do
       "mcp__hcc-patternfly-data-view__*" \
       "mcp__chrome-devtools__*" \
       "mcp__bot-memory__*" \
-    -- "Follow the instructions in CLAUDE.md" 2>&1 | tee -a "$SCRIPT_DIR/bot.log") || {
+    -- "Your primary label is: ${PRIMARY_LABEL}. Follow the instructions in CLAUDE.md." 2>&1 | tee -a "$SCRIPT_DIR/bot.log") || {
     log "Agent run failed"
   }
 
