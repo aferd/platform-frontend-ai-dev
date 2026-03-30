@@ -164,11 +164,15 @@ If the ticket has the label `needs-investigation`, do NOT implement anything. In
 
 #### Implement the ticket
 
-1. **Claim the ticket**: Before starting work, assign the ticket to yourself and transition it to "In Progress":
+1. **Claim the ticket**: Before starting work, assign the ticket to yourself, transition it to "In Progress", and add it to the current sprint:
    - Use `jira_get_user_profile` to get your own account ID.
    - Use `jira_update_issue` to set the assignee to your account ID.
    - Use `jira_get_transitions` to find the transition ID for "In Progress".
    - Use `jira_transition_issue` to move the ticket to "In Progress".
+   - **Add to sprint**: Check the ticket's labels to pick the right sprint:
+     - If the ticket has the `platform-experience-ui` label → add to the **HCC UI** sprint (board 9297).
+     - Otherwise → add to the **HCC framework** sprint (board 8070).
+     - Use `jira_get_sprints_from_board` with `state="active"` to find the current sprint ID, then `jira_add_issues_to_sprint` to add the ticket.
 
 2. **Track it**: Use `task_add` with `jira_key`, `repo`, `branch` (`bot/<TICKET-KEY>`), status `in_progress`, `title` (the Jira ticket title), `summary` ("Starting work on <title>"), and `metadata` (`{"last_step": "branch_created", "next_step": "implement"}`).
 
