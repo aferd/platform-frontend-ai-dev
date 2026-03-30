@@ -5,6 +5,7 @@ from typing import Optional
 from fastmcp import FastMCP
 
 from ..db import get_pool
+from ..events import Event, bus
 from ..models import Task
 
 ACTIVE_STATUSES = ("in_progress", "pr_open", "pr_changes")
@@ -89,7 +90,9 @@ def register_task_tools(mcp: FastMCP):
             jira_key, status, repo, branch, pr_number, pr_url, title, summary,
             json.dumps(metadata or {}),
         )
-        return _row_to_task(row)
+        result = _row_to_task(row)
+        await bus.publish(Event("task_added", {"jira_key": jira_key, "title": title, "status": status}))
+        return result
 
     @mcp.tool()
     async def task_update(
@@ -153,7 +156,9 @@ def register_task_tools(mcp: FastMCP):
         row = await pool.fetchrow(query, jira_key, *params)
         if not row:
             raise ValueError(f"Task {jira_key} not found")
-        return _row_to_task(row)
+        result = _row_to_task(row)
+        await bus.publish(Event("task_updated", {"jira_key": jira_key, "status": result["status"], "summary": result.get("summary")}))
+        return result
 
     @mcp.tool()
     async def task_remove(jira_key: str) -> dict:
@@ -162,6 +167,7 @@ def register_task_tools(mcp: FastMCP):
         result = await pool.execute("DELETE FROM tasks WHERE jira_key = $1", jira_key)
         if result == "DELETE 0":
             raise ValueError(f"Task {jira_key} not found")
+        await bus.publish(Event("task_removed", {"jira_key": jira_key}))
         return {"removed": True, "jira_key": jira_key}
 
     @mcp.tool()

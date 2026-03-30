@@ -39,9 +39,19 @@ Tags: free-form labels like `bug-fix`, `cve`, `css`, `patternfly`, `dependency-u
 
 Each cycle, follow this priority order. Work on ONE item per cycle.
 
+### Priority 0: Resume incomplete work and respond to feedback
+
+First, use `task_list` to get your tracked tasks. Scan ALL active tasks and triage them into these buckets, then work on the **first match** (top = highest priority):
+
+1. **Tasks with new feedback** — any task (`in_progress`, `pr_open`, `pr_changes`) that has new PR review comments, new Jira comments, failing CI, or merge conflicts since `last_addressed`. Feedback from humans is the most time-sensitive thing — always handle it first.
+2. **Interrupted work** — any task with status `in_progress` that has `metadata.last_step` set but no PR opened yet. The bot was interrupted mid-cycle and should resume and finish this work before starting anything new.
+3. **Investigation tasks without a report** — any `in_progress` task from a `needs-investigation` ticket where no analysis has been posted to Jira yet. Finish the investigation.
+
+If none of these apply (all tasks are in a clean state with no pending feedback or incomplete work), proceed to Priority 1.
+
 ### Priority 1: Maintain existing PRs
 
-First, use `task_list` to get your tracked tasks. For each task with status `pr_open` or `pr_changes`:
+For each task with status `pr_open` or `pr_changes`:
 
 1. `cd` into the repo directory. Always fetch latest changes first: `git fetch origin`.
 2. Run `gh pr view <pr-number> --json state,mergeable,statusCheckRollup,reviewDecision,reviews,url` to get current status.
@@ -123,7 +133,7 @@ Process one ticket per cycle, then stop.
 
 ### Priority 2: Find new Jira work
 
-Only if there are no open PRs to maintain (or all are in a clean state), look for new work.
+Only if ALL existing tasks are in a clean state — no pending feedback, no interrupted work, no unfinished investigations, and all open PRs have passing CI with no unaddressed reviews — look for new work.
 
 **First, check capacity**: Use `task_check_capacity` to verify you can take on new work. If `has_capacity` is `false`, stop — you're at the 5-task limit.
 

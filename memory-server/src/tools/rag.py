@@ -5,6 +5,7 @@ from fastmcp import FastMCP
 
 from ..db import get_pool
 from ..embeddings import embed
+from ..events import Event, bus
 from ..models import Memory, MemorySearchResult
 
 
@@ -67,7 +68,9 @@ def register_rag_tools(mcp: FastMCP):
             vector,
             json.dumps(metadata or {}),
         )
-        return _row_to_memory(row)
+        result = _row_to_memory(row)
+        await bus.publish(Event("memory_stored", {"id": result["id"], "title": title, "category": category}))
+        return result
 
     @mcp.tool()
     async def memory_search(
@@ -172,4 +175,5 @@ def register_rag_tools(mcp: FastMCP):
         result = await pool.execute("DELETE FROM memories WHERE id = $1", id)
         if result == "DELETE 0":
             raise ValueError(f"Memory {id} not found")
+        await bus.publish(Event("memory_deleted", {"id": id}))
         return {"deleted": True, "id": id}

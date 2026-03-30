@@ -6,6 +6,7 @@ from starlette.responses import JSONResponse
 
 from .db import get_pool
 from .embeddings import embed
+from .events import Event, bus
 
 
 async def api_tasks(request: Request) -> JSONResponse:
@@ -164,6 +165,7 @@ async def api_memory_delete(request: Request) -> JSONResponse:
     result = await pool.execute("DELETE FROM memories WHERE id = $1", int(memory_id))
     if result == "DELETE 0":
         return JSONResponse({"error": f"Memory {memory_id} not found"}, status_code=404)
+    await bus.publish(Event("memory_deleted", {"id": int(memory_id)}))
     return JSONResponse({"deleted": True, "id": int(memory_id)})
 
 

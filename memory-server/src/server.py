@@ -2,13 +2,16 @@ import logging
 from contextlib import asynccontextmanager
 from pathlib import Path
 
+import uvicorn
 from fastmcp import FastMCP
-from starlette.middleware.cors import CORSMiddleware
 from starlette.requests import Request
 from starlette.responses import FileResponse, HTMLResponse, JSONResponse
+from starlette.routing import Route, WebSocketRoute
+from starlette.websockets import WebSocket
 
 from .db import close_pool, init_pool
 from .embeddings import load_model
+from .events import bus
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -72,5 +75,22 @@ mcp.custom_route("/api/tags", methods=["GET"])(api_tags)
 mcp.custom_route("/api/stats", methods=["GET"])(api_stats)
 
 
+# WebSocket for live updates
+async def ws_events(websocket: WebSocket):
+    await websocket.accept()
+    queue = bus.subscribe()
+    try:
+        while True:
+            event = await queue.get()
+            await websocket.send_text(event.to_sse_json())
+    except Exception:
+        pass
+    finally:
+        bus.unsubscribe(queue)
+
+
 if __name__ == "__main__":
-    mcp.run(transport="sse", host="0.0.0.0", port=8080)
+    app = mcp.http_app(transport="sse")
+    # Add WebSocket route to the Starlette app
+    app.routes.append(WebSocketRoute("/ws", ws_events))
+    uvicorn.run(app, host="0.0.0.0", port=8080)

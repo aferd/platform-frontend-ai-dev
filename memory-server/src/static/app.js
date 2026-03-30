@@ -490,8 +490,80 @@ function timeAgo(iso) {
   return Math.floor(s/86400) + 'd ago';
 }
 
+// ---- WebSocket live updates ----
+const EVENT_LABELS = {
+  task_added: { icon: '+', label: 'Task added' },
+  task_updated: { icon: '~', label: 'Task updated' },
+  task_removed: { icon: '-', label: 'Task removed' },
+  memory_stored: { icon: '+', label: 'Memory stored' },
+  memory_deleted: { icon: '-', label: 'Memory deleted' },
+};
+
+function showToast(event) {
+  const container = document.getElementById('toast-container');
+  const meta = EVENT_LABELS[event.type] || { icon: '*', label: event.type };
+  const detail = event.data.jira_key || event.data.title || (event.data.id ? `#${event.data.id}` : '');
+  const summary = event.data.summary || event.data.status || event.data.category || '';
+
+  const toast = document.createElement('div');
+  toast.className = `toast type-${event.type}`;
+  toast.innerHTML = `
+    <span class="toast-icon">${meta.icon}</span>
+    <div class="toast-body">
+      <div class="toast-title">${meta.label}${detail ? ': ' + esc(detail) : ''}</div>
+      ${summary ? `<div class="toast-message">${esc(summary)}</div>` : ''}
+      <div class="toast-time">${new Date(event.timestamp * 1000).toLocaleTimeString()}</div>
+    </div>
+    <button class="toast-close">&times;</button>
+  `;
+
+  const dismiss = () => toast.remove();
+  toast.querySelector('.toast-close').addEventListener('click', (e) => { e.stopPropagation(); dismiss(); });
+  toast.addEventListener('click', dismiss);
+
+  container.prepend(toast);
+}
+
+function connectWS() {
+  const wsIndicator = document.getElementById('ws-status');
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const ws = new WebSocket(`${proto}//${location.host}/ws`);
+
+  ws.onopen = () => {
+    wsIndicator.classList.add('connected');
+    wsIndicator.title = 'Live updates connected';
+  };
+
+  ws.onclose = () => {
+    wsIndicator.classList.remove('connected');
+    wsIndicator.title = 'Live updates disconnected — reconnecting...';
+    setTimeout(connectWS, 3000);
+  };
+
+  ws.onerror = () => ws.close();
+
+  ws.onmessage = (msg) => {
+    try {
+      const event = JSON.parse(msg.data);
+      showToast(event);
+
+      // Auto-refresh relevant data
+      if (event.type.startsWith('task_')) {
+        loadTasks();
+        loadStats();
+      } else if (event.type.startsWith('memory_')) {
+        loadMemories();
+        loadStats();
+      }
+    } catch (e) {
+      console.error('WS parse error:', e);
+    }
+  };
+}
+
 // Init
 loadStats();
 loadTasks();
 loadMemories();
 loadFilters();
+connectWS();
