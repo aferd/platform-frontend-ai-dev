@@ -51,6 +51,10 @@ export interface CycleEntry {
   model: string;
   is_error: boolean;
   no_work: boolean;
+  jira_key: string | null;
+  repo: string | null;
+  work_type: string | null;
+  summary: string | null;
 }
 
 export interface DailyAggregate {

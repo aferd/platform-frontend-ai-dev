@@ -312,8 +312,9 @@ async def api_costs_add(request: Request) -> JSONResponse:
         """
         INSERT INTO cycles (label, session_id, num_turns, duration_ms, cost_usd,
                             input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
-                            model, is_error, no_work)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                            model, is_error, no_work,
+                            jira_key, repo, work_type, summary)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
         RETURNING *
         """,
         body.get("label", ""),
@@ -328,8 +329,14 @@ async def api_costs_add(request: Request) -> JSONResponse:
         body.get("model", ""),
         body.get("is_error", False),
         body.get("no_work", False),
+        body.get("jira_key"),
+        body.get("repo"),
+        body.get("work_type"),
+        body.get("summary"),
     )
-    return JSONResponse(_cycle(row), status_code=201)
+    cycle = _cycle(row)
+    await bus.publish(Event("cycle_recorded", cycle))
+    return JSONResponse(cycle, status_code=201)
 
 
 async def api_tags(request: Request) -> JSONResponse:
@@ -396,6 +403,10 @@ def _cycle(row) -> dict:
         "model": row["model"],
         "is_error": row["is_error"],
         "no_work": row["no_work"],
+        "jira_key": row.get("jira_key"),
+        "repo": row.get("repo"),
+        "work_type": row.get("work_type"),
+        "summary": row.get("summary"),
     }
 
 

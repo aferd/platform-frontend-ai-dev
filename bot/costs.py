@@ -1,18 +1,24 @@
 """Cost tracking — writes cycle cost data to costs.jsonl and the dashboard API."""
 
+from __future__ import annotations
+
 import json
 import logging
 from datetime import datetime, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
+
+if TYPE_CHECKING:
+    from .agent import CycleContext
 
 logger = logging.getLogger(__name__)
 
 COSTS_API = "http://localhost:8080/api/costs"
 
 
-def _build_entry(label: str, result) -> dict:
+def _build_entry(label: str, result, ctx: CycleContext | None = None) -> dict:
     """Build a cost entry dict from an SDK ResultMessage."""
     usage = getattr(result, "usage", None) or {}
     result_text = getattr(result, "result", "") or ""
@@ -22,7 +28,7 @@ def _build_entry(label: str, result) -> dict:
     if model_usage and isinstance(model_usage, dict):
         model = next(iter(model_usage.keys()), "")
 
-    return {
+    entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "label": label,
         "session_id": getattr(result, "session_id", ""),
@@ -38,14 +44,22 @@ def _build_entry(label: str, result) -> dict:
         "no_work": "NO_WORK_FOUND" in result_text,
     }
 
+    if ctx:
+        entry["jira_key"] = ctx.jira_key
+        entry["repo"] = ctx.repo
+        entry["work_type"] = ctx.work_type
+        entry["summary"] = ctx.summary
 
-def record_cost(costs_file: Path, label: str, result) -> bool:
+    return entry
+
+
+def record_cost(costs_file: Path, label: str, result, ctx: CycleContext | None = None) -> bool:
     """Record cost data from a ResultMessage.
 
     Writes to costs.jsonl (local) and pushes to the dashboard API.
     Returns True if the cycle found no work (for sleep interval decision).
     """
-    entry = _build_entry(label, result)
+    entry = _build_entry(label, result, ctx)
 
     # Write to local jsonl (backward compat with costs.sh)
     with open(costs_file, "a") as f:

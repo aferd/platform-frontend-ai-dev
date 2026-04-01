@@ -17,3 +17,4 @@ uv.lock
 dashboard/node_modules/
 memory-server/src/static/assets/
 memory-server/src/static/index.html
+sa-key.json

@@ -80,6 +80,16 @@ CREATE TABLE IF NOT EXISTS cycles (
     no_work         BOOLEAN NOT NULL DEFAULT FALSE
 );
 
+-- Cycle work context (added retroactively — nullable for historical data)
+DO $$ BEGIN
+    ALTER TABLE cycles ADD COLUMN IF NOT EXISTS jira_key TEXT;
+    ALTER TABLE cycles ADD COLUMN IF NOT EXISTS repo TEXT;
+    ALTER TABLE cycles ADD COLUMN IF NOT EXISTS work_type TEXT;
+    ALTER TABLE cycles ADD COLUMN IF NOT EXISTS summary TEXT;
+EXCEPTION
+    WHEN duplicate_column THEN NULL;
+END $$;
+
 -- Only create index if table has enough rows (ivfflat needs data)
 -- On first startup with empty table, queries fall back to sequential scan
 -- Re-run this after seeding data:

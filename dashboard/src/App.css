@@ -978,13 +978,34 @@ select:focus,
   background: rgba(255, 255, 255, 0.04);
 }
 
+.cycle-chart-legend {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  margin-bottom: 12px;
+  padding: 4px 0;
+}
+.cycle-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-dim);
+}
+.cycle-legend-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
 .cycle-list {
   max-height: 500px;
   overflow-y: auto;
 }
 .cycle-row {
   display: grid;
-  grid-template-columns: 140px 70px 80px 80px 1fr 70px;
+  grid-template-columns: 130px 1fr 70px 70px 80px 150px 80px;
   gap: 8px;
   padding: 8px 4px;
   border-bottom: 1px solid rgba(48, 54, 61, 0.3);
@@ -1005,6 +1026,9 @@ select:focus,
   padding-bottom: 8px;
   border-bottom: 1px solid var(--border);
 }
+.cycle-work { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.cycle-work a { font-weight: 600; font-size: 13px; }
+.cycle-repo { font-size: 11px; color: var(--text-dim); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cycle-cost { font-weight: 600; font-variant-numeric: tabular-nums; }
 .cycle-time { color: var(--text-dim); }
 .cycle-turns { color: var(--text-dim); }
@@ -1039,7 +1063,7 @@ select:focus,
 }
 @media (max-width: 900px) {
   .costs-charts { grid-template-columns: 1fr; }
-  .cycle-row { grid-template-columns: 100px 60px 60px 70px 1fr 60px; font-size: 12px; }
+  .cycle-row { grid-template-columns: 90px 1fr 55px 55px 65px 100px 65px; font-size: 12px; }
 }
 
 /* Empty state */

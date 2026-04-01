@@ -42,6 +42,12 @@ def main() -> None:
     # Load .env before anything else so MCP servers get the credentials
     load_dotenv(SCRIPT_DIR / ".env")
 
+    # Resolve GOOGLE_APPLICATION_CREDENTIALS to absolute path so the SDK
+    # finds the service account key regardless of working directory
+    gac = os.environ.get("GOOGLE_APPLICATION_CREDENTIALS")
+    if gac and not os.path.isabs(gac):
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = str(SCRIPT_DIR / gac)
+
     parser = argparse.ArgumentParser(description="Dev bot agent loop")
     parser.add_argument(
         "--label",
@@ -73,7 +79,7 @@ def main() -> None:
     signal.signal(signal.SIGTERM, shutdown)
 
     logger.info(
-        "Dev bot started. Label: %s. Active interval: %ds. Idle interval: %ds.",
+        "Dev bot started. Label: %s. Provider: Vertex AI. Active interval: %ds. Idle interval: %ds.",
         args.label,
         config.interval,
         config.idle_interval,
@@ -83,7 +89,7 @@ def main() -> None:
         while True:
             logger.info("Running agent cycle...")
 
-            result = asyncio.run(
+            result, ctx = asyncio.run(
                 run_cycle(
                     label=args.label,
                     config=config,
@@ -98,6 +104,7 @@ def main() -> None:
                     costs_file=SCRIPT_DIR / "costs.jsonl",
                     label=args.label,
                     result=result,
+                    ctx=ctx,
                 )
             else:
                 no_work = False
