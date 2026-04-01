@@ -1,0 +1,69 @@
+import { useEffect, useState } from 'react';
+import type { BotStatus } from '../types';
+import { timeAgo, JIRA_BASE } from '../utils';
+
+interface Props {
+  status: BotStatus;
+}
+
+export default function BotBanner({ status }: Props) {
+  const [elapsed, setElapsed] = useState('');
+
+  useEffect(() => {
+    if (status.state !== 'working' || !status.cycle_start) {
+      setElapsed('');
+      return;
+    }
+
+    const tick = () => {
+      const ms = Date.now() - new Date(status.cycle_start!).getTime();
+      const s = Math.floor(ms / 1000);
+      const m = Math.floor(s / 60);
+      const h = Math.floor(m / 60);
+      if (h > 0) {
+        setElapsed(`${h}h ${m % 60}m ${s % 60}s`);
+      } else if (m > 0) {
+        setElapsed(`${m}m ${s % 60}s`);
+      } else {
+        setElapsed(`${s}s`);
+      }
+    };
+
+    tick();
+    const id = setInterval(tick, 1000);
+    return () => clearInterval(id);
+  }, [status.state, status.cycle_start]);
+
+  return (
+    <div className={`bot-banner state-${status.state}`}>
+      <div className="banner-left">
+        <span className={`indicator-dot ${status.state}`}>
+          <span className="ping-ring" />
+        </span>
+        <span className={`state-badge ${status.state}`}>
+          {status.state.toUpperCase()}
+        </span>
+        <span className="banner-message" key={status.message}>
+          {status.message}
+        </span>
+      </div>
+      <div className="banner-meta">
+        {status.jira_key && (
+          <a
+            href={JIRA_BASE + status.jira_key}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="banner-jira"
+          >
+            {status.jira_key}
+          </a>
+        )}
+        {status.repo && <span className="banner-repo">{status.repo}</span>}
+        {elapsed && <span className="banner-elapsed">{elapsed}</span>}
+        <span className="banner-updated" title={status.updated_at}>
+          {timeAgo(status.updated_at)}
+        </span>
+      </div>
+    </div>
+  );
+}

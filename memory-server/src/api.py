@@ -198,6 +198,8 @@ async def api_memory_delete(request: Request) -> JSONResponse:
 
 
 async def api_bot_status(request: Request) -> JSONResponse:
+    if request.method == "POST":
+        return await api_bot_status_update(request)
     pool = get_pool()
     row = await pool.fetchrow("SELECT * FROM bot_status WHERE id = 1")
     if not row:
@@ -210,6 +212,124 @@ async def api_bot_status(request: Request) -> JSONResponse:
         "cycle_start": row["cycle_start"].isoformat() if row["cycle_start"] else None,
         "updated_at": row["updated_at"].isoformat(),
     })
+
+
+async def api_bot_status_update(request: Request) -> JSONResponse:
+    """POST /api/bot-status — update bot status from the runner."""
+    pool = get_pool()
+    body = await request.json()
+    state = body.get("state")
+    message = body.get("message", "")
+    jira_key = body.get("jira_key")
+    repo = body.get("repo")
+
+    if state not in ("working", "idle", "error"):
+        return JSONResponse({"error": "state must be working, idle, or error"}, status_code=400)
+
+    row = await pool.fetchrow(
+        """
+        UPDATE bot_status SET state = $1, message = $2, jira_key = $3, repo = $4,
+            cycle_start = CASE WHEN state = 'idle' AND $1 = 'working' THEN NOW() ELSE cycle_start END,
+            updated_at = NOW()
+        WHERE id = 1 RETURNING *
+        """,
+        state, message, jira_key, repo,
+    )
+    result = {
+        "state": row["state"],
+        "message": row["message"],
+        "jira_key": row["jira_key"],
+        "repo": row["repo"],
+        "cycle_start": row["cycle_start"].isoformat() if row["cycle_start"] else None,
+        "updated_at": row["updated_at"].isoformat(),
+    }
+    await bus.publish(Event("bot_status", result))
+    return JSONResponse(result)
+
+
+async def api_costs(request: Request) -> JSONResponse:
+    """GET /api/costs — list cycle cost records. POST to add one."""
+    if request.method == "POST":
+        return await api_costs_add(request)
+    pool = get_pool()
+    days = int(request.query_params.get("days", "30"))
+    limit = int(request.query_params.get("limit", "200"))
+
+    rows = await pool.fetch(
+        """
+        SELECT * FROM cycles
+        WHERE timestamp > NOW() - make_interval(days => $1)
+        ORDER BY timestamp DESC LIMIT $2
+        """,
+        days, limit,
+    )
+    items = [_cycle(r) for r in rows]
+
+    # Daily aggregates
+    daily_rows = await pool.fetch(
+        """
+        SELECT DATE(timestamp) AS day,
+               COUNT(*) AS cycles,
+               SUM(cost_usd) AS total_cost,
+               SUM(input_tokens) AS input_tokens,
+               SUM(output_tokens) AS output_tokens,
+               SUM(cache_read_tokens) AS cache_read,
+               SUM(cache_write_tokens) AS cache_write,
+               SUM(duration_ms) AS total_duration,
+               SUM(num_turns) AS total_turns,
+               SUM(CASE WHEN no_work THEN 1 ELSE 0 END) AS idle_cycles,
+               SUM(CASE WHEN is_error THEN 1 ELSE 0 END) AS error_cycles
+        FROM cycles
+        WHERE timestamp > NOW() - make_interval(days => $1)
+        GROUP BY DATE(timestamp)
+        ORDER BY day DESC
+        """,
+        days,
+    )
+    daily = [{
+        "day": str(r["day"]),
+        "cycles": r["cycles"],
+        "total_cost": float(r["total_cost"] or 0),
+        "input_tokens": r["input_tokens"],
+        "output_tokens": r["output_tokens"],
+        "cache_read": r["cache_read"],
+        "cache_write": r["cache_write"],
+        "total_duration": r["total_duration"],
+        "total_turns": r["total_turns"],
+        "idle_cycles": r["idle_cycles"],
+        "error_cycles": r["error_cycles"],
+    } for r in daily_rows]
+
+    return JSONResponse({"items": items, "daily": daily})
+
+
+async def api_costs_add(request: Request) -> JSONResponse:
+    """POST /api/costs — record a new cycle cost entry."""
+    pool = get_pool()
+    body = await request.json()
+
+    row = await pool.fetchrow(
+        """
+        INSERT INTO cycles (label, session_id, num_turns, duration_ms, cost_usd,
+                            input_tokens, output_tokens, cache_read_tokens, cache_write_tokens,
+                            model, is_error, no_work)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+        RETURNING *
+        """,
+        body.get("label", ""),
+        body.get("session_id", ""),
+        body.get("num_turns", 0),
+        body.get("duration_ms", 0),
+        body.get("cost_usd", 0),
+        body.get("input_tokens", 0),
+        body.get("output_tokens", 0),
+        body.get("cache_read_tokens", 0),
+        body.get("cache_write_tokens", 0),
+        body.get("model", ""),
+        body.get("is_error", False),
+        body.get("no_work", False),
+    )
+    return JSONResponse(_cycle(row), status_code=201)
 
 
 async def api_tags(request: Request) -> JSONResponse:
@@ -257,6 +377,25 @@ def _task(row) -> dict:
         "last_addressed": row["last_addressed"].isoformat(),
         "paused_reason": row["paused_reason"],
         "metadata": json.loads(row["metadata"]) if isinstance(row["metadata"], str) else (row["metadata"] or {}),
+    }
+
+
+def _cycle(row) -> dict:
+    return {
+        "id": row["id"],
+        "timestamp": row["timestamp"].isoformat(),
+        "label": row["label"],
+        "session_id": row["session_id"],
+        "num_turns": row["num_turns"],
+        "duration_ms": row["duration_ms"],
+        "cost_usd": float(row["cost_usd"]),
+        "input_tokens": row["input_tokens"],
+        "output_tokens": row["output_tokens"],
+        "cache_read_tokens": row["cache_read_tokens"],
+        "cache_write_tokens": row["cache_write_tokens"],
+        "model": row["model"],
+        "is_error": row["is_error"],
+        "no_work": row["no_work"],
     }
 
 

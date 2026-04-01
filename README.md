@@ -1,6 +1,6 @@
 # Dev Bot (Rehor)
 
-An autonomous developer agent that picks groomed Jira tickets, implements them, opens PRs, and maintains them through review — all without human intervention. It runs in a polling loop using Claude CLI and integrates with Jira, GitHub, and a persistent memory system.
+An autonomous developer agent that picks groomed Jira tickets, implements them, opens PRs, and maintains them through review — all without human intervention. It runs in a polling loop using the Claude Agent SDK (Python) and integrates with Jira, GitHub, and a persistent memory system.
 
 ## How it works
 
@@ -87,7 +87,14 @@ For UI changes, the bot starts the dev server, navigates to the affected page us
 
 ```
 dev-bot/
-  run.sh                 # Polling loop — launches Claude CLI each cycle
+  pyproject.toml         # Python project config (uv workspace root)
+  Makefile               # Common commands (make run, make costs, etc.)
+  bot/                   # Agent runner (Python package)
+    run.py               # Main loop entry point
+    agent.py             # SDK query invocation per cycle
+    config.py            # Config loading + MCP server merging
+    costs.py             # Cost tracking (writes to costs.jsonl)
+  run.sh                 # Legacy shell runner (deprecated)
   init.sh                # Installs LSP, starts memory server
   config.json            # Model, polling intervals, Jira config
   project-repos.json     # repo label -> git URL + persona mapping
@@ -96,7 +103,7 @@ dev-bot/
   costs.sh               # Cost report script
   costs.jsonl            # Per-cycle cost records (auto-generated)
   bot.log                # Full cycle output log
-  memory-server/         # Persistent memory + task tracking (Docker)
+  memory-server/         # Persistent memory + task tracking (Docker, uv workspace member)
     src/
       server.py          # FastMCP + Starlette + WebSocket
       tools/             # MCP tools (task_*, memory_*)
@@ -115,22 +122,23 @@ dev-bot/
 ## Prerequisites
 
 - [Claude Code](https://claude.ai/code) installed and authenticated
+- [uv](https://docs.astral.sh/uv/) for Python dependency management
 - `gh` CLI authenticated with GitHub
 - `glab` CLI authenticated with GitLab (for GitLab repos like app-interface)
 - SSH access to target repos
 - Docker (for the memory server)
-- Jira MCP server configured (`mcp-atlassian`)
 - Node.js + npm (for TypeScript LSP)
 - `jq`
+- Jira credentials set as env vars: `JIRA_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN`
 
 ## Setup
 
 ```bash
-# Initialize (installs LSP, starts memory server)
-./init.sh
+# Full init (installs deps, LSP, starts memory server)
+make init
 
 # Run the bot for a specific team
-./run.sh --label hcc-ai-framework
+make run LABEL=hcc-ai-framework
 ```
 
 ## Adding a new repo
@@ -214,29 +222,28 @@ If you're using Chromium instead of Chrome, edit `start-chromium.sh` and replace
 ### 3. Run the bot
 
 ```bash
-# Full init first (installs LSP, starts memory server)
-./init.sh
+# Full init first
+make init
 
 # Start the polling loop for a specific team
-./run.sh --label hcc-ai-framework
+make run LABEL=hcc-ai-framework
+
+# Or directly via uv:
+uv run dev-bot --label hcc-ai-framework
 ```
 
 The bot logs to `bot.log` and stdout. Each cycle it:
-1. Launches Claude CLI with the full tool set (Jira, GitHub, memory, browser, LSP)
+1. Invokes the Claude Agent SDK with the full tool set (Jira, GitHub, memory, browser, LSP)
 2. Claude reads `CLAUDE.md` and follows the workflow
 3. When the cycle completes, it sleeps for 5 minutes (or 1 hour if no work was found)
 
-To run a single cycle manually (useful for testing):
+Other useful commands:
 
 ```bash
-claude --print \
-  --max-turns 100 \
-  --model claude-opus-4-6 \
-  --allowedTools "Edit" "Write" "Read" "Glob" "Grep" "Bash" "LSP" \
-    "mcp__mcp-atlassian__jira_*" \
-    "mcp__chrome-devtools__*" \
-    "mcp__bot-memory__*" \
-  -- "Your primary label is: hcc-ai-framework. Follow the instructions in CLAUDE.md."
+make help         # Show all available commands
+make stop         # Stop a running bot
+make logs         # Tail bot log
+make costs-today  # Show today's costs
 ```
 
 ### 4. Configuration
@@ -260,7 +267,7 @@ MCP servers are configured in `.mcp.json` (project-level) and `personas/*/mcp.js
 
 ## Cost tracking
 
-Each bot cycle records its cost to `costs.jsonl` — tokens used, duration, model, and USD cost extracted from Claude CLI's stream-json output.
+Each bot cycle records its cost to `costs.jsonl` — tokens used, duration, model, and USD cost extracted from the Agent SDK's `ResultMessage`.
 
 ```bash
 # View all recorded cycles

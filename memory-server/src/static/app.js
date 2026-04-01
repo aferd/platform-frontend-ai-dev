@@ -133,6 +133,8 @@ function applyHash() {
     const q = params.get('q') || '';
     document.getElementById('search-input').value = q;
     if (q) doSearch();
+  } else if (tab === 'costs') {
+    loadCosts();
   } else if (tab === 'viz') {
     loadViz();
   }
@@ -152,6 +154,7 @@ document.querySelectorAll('.tab').forEach(tab => {
     tab.classList.add('active');
     document.getElementById('panel-' + tab.dataset.tab).classList.add('active');
     if (tab.dataset.tab === 'viz') loadViz();
+    if (tab.dataset.tab === 'costs') loadCosts();
     updateHash();
   });
 });
@@ -571,6 +574,238 @@ function updatePoints() {
     }
   }
 }
+
+// ---- Costs Tab ----
+let costsData = null;
+
+async function loadCosts() {
+  const days = document.getElementById('costs-days-filter').value;
+  const res = await fetch(API + '/api/costs?days=' + days);
+  costsData = await res.json();
+  renderCostsSummary();
+  renderDailyCostChart();
+  renderDailyTokenChart();
+  renderCycleList();
+}
+
+function renderCostsSummary() {
+  const { items, daily } = costsData;
+  const el = document.getElementById('costs-summary');
+  const totalCost = items.reduce((s, c) => s + c.cost_usd, 0);
+  const totalCycles = items.length;
+  const totalTurns = items.reduce((s, c) => s + c.num_turns, 0);
+  const totalDuration = items.reduce((s, c) => s + c.duration_ms, 0);
+  const idleCycles = items.filter(c => c.no_work).length;
+  const errorCycles = items.filter(c => c.is_error).length;
+  const workCycles = totalCycles - idleCycles;
+  const avgCost = workCycles > 0 ? totalCost / workCycles : 0;
+  const totalInput = items.reduce((s, c) => s + c.input_tokens, 0);
+  const totalOutput = items.reduce((s, c) => s + c.output_tokens, 0);
+  const totalCacheRead = items.reduce((s, c) => s + c.cache_read_tokens, 0);
+  const totalCacheWrite = items.reduce((s, c) => s + c.cache_write_tokens, 0);
+
+  el.innerHTML = `
+    <div class="cost-stat">
+      <div class="cost-stat-value" style="color:var(--green)">$${totalCost.toFixed(2)}</div>
+      <div class="cost-stat-label">Total Cost</div>
+      <div class="cost-stat-sub">${daily.length} days</div>
+    </div>
+    <div class="cost-stat">
+      <div class="cost-stat-value">${totalCycles}</div>
+      <div class="cost-stat-label">Total Cycles</div>
+      <div class="cost-stat-sub">${workCycles} work · ${idleCycles} idle${errorCycles ? ` · ${errorCycles} error` : ''}</div>
+    </div>
+    <div class="cost-stat">
+      <div class="cost-stat-value">$${avgCost.toFixed(2)}</div>
+      <div class="cost-stat-label">Avg Cost / Work Cycle</div>
+      <div class="cost-stat-sub">${totalTurns} total turns</div>
+    </div>
+    <div class="cost-stat">
+      <div class="cost-stat-value">${formatDuration(totalDuration)}</div>
+      <div class="cost-stat-label">Total Runtime</div>
+      <div class="cost-stat-sub">avg ${formatDuration(totalCycles > 0 ? totalDuration / totalCycles : 0)}/cycle</div>
+    </div>
+    <div class="cost-stat">
+      <div class="cost-stat-value">${formatTokens(totalOutput)}</div>
+      <div class="cost-stat-label">Output Tokens</div>
+      <div class="cost-stat-sub">${formatTokens(totalInput)} input</div>
+    </div>
+    <div class="cost-stat">
+      <div class="cost-stat-value">${formatTokens(totalCacheRead)}</div>
+      <div class="cost-stat-label">Cache Read</div>
+      <div class="cost-stat-sub">${formatTokens(totalCacheWrite)} written</div>
+    </div>
+  `;
+}
+
+function renderDailyCostChart() {
+  const canvas = document.getElementById('chart-daily-cost');
+  const ctx = canvas.getContext('2d');
+  const { daily } = costsData;
+  if (!daily.length) { ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
+
+  const sorted = [...daily].sort((a, b) => a.day.localeCompare(b.day));
+  const maxCost = Math.max(...sorted.map(d => d.total_cost), 0.01);
+
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth;
+  const H = canvas.clientHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = { top: 10, right: 10, bottom: 30, left: 50 };
+  const chartW = W - pad.left - pad.right;
+  const chartH = H - pad.top - pad.bottom;
+  const barW = Math.max(4, Math.min(40, chartW / sorted.length - 4));
+
+  // Y axis
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '10px -apple-system, sans-serif';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const val = (maxCost / 4) * i;
+    const y = pad.top + chartH - (chartH * (val / maxCost));
+    ctx.fillText('$' + val.toFixed(2), pad.left - 6, y + 3);
+    ctx.strokeStyle = '#21262d';
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(W - pad.right, y);
+    ctx.stroke();
+  }
+
+  // Bars
+  sorted.forEach((d, i) => {
+    const x = pad.left + (i * (chartW / sorted.length)) + (chartW / sorted.length - barW) / 2;
+    const h = (d.total_cost / maxCost) * chartH;
+    const y = pad.top + chartH - h;
+
+    const hasIdle = d.idle_cycles > 0;
+    const hasError = d.error_cycles > 0;
+
+    ctx.fillStyle = hasError ? '#f85149' : hasIdle ? '#d29922' : '#3fb950';
+    ctx.beginPath();
+    ctx.roundRect(x, y, barW, h, [3, 3, 0, 0]);
+    ctx.fill();
+
+    // X label
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    const label = d.day.slice(5); // MM-DD
+    ctx.fillText(label, x + barW / 2, pad.top + chartH + 16);
+  });
+}
+
+function renderDailyTokenChart() {
+  const canvas = document.getElementById('chart-daily-tokens');
+  const ctx = canvas.getContext('2d');
+  const { daily } = costsData;
+  if (!daily.length) { ctx.clearRect(0, 0, canvas.width, canvas.height); return; }
+
+  const sorted = [...daily].sort((a, b) => a.day.localeCompare(b.day));
+  const maxTokens = Math.max(...sorted.map(d => (d.output_tokens || 0) + (d.cache_read || 0)), 1);
+
+  const dpr = window.devicePixelRatio || 1;
+  const W = canvas.clientWidth;
+  const H = canvas.clientHeight;
+  canvas.width = W * dpr;
+  canvas.height = H * dpr;
+  ctx.scale(dpr, dpr);
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = { top: 10, right: 10, bottom: 30, left: 50 };
+  const chartW = W - pad.left - pad.right;
+  const chartH = H - pad.top - pad.bottom;
+  const barW = Math.max(4, Math.min(40, chartW / sorted.length - 4));
+
+  // Y axis
+  ctx.fillStyle = '#8b949e';
+  ctx.font = '10px -apple-system, sans-serif';
+  ctx.textAlign = 'right';
+  for (let i = 0; i <= 4; i++) {
+    const val = (maxTokens / 4) * i;
+    const y = pad.top + chartH - (chartH * (val / maxTokens));
+    ctx.fillText(formatTokens(val), pad.left - 6, y + 3);
+    ctx.strokeStyle = '#21262d';
+    ctx.beginPath();
+    ctx.moveTo(pad.left, y);
+    ctx.lineTo(W - pad.right, y);
+    ctx.stroke();
+  }
+
+  // Stacked bars: output (green) + cache_read (blue)
+  sorted.forEach((d, i) => {
+    const x = pad.left + (i * (chartW / sorted.length)) + (chartW / sorted.length - barW) / 2;
+    const total = (d.output_tokens || 0) + (d.cache_read || 0);
+
+    const outH = total > 0 ? ((d.output_tokens || 0) / maxTokens) * chartH : 0;
+    const cacheH = total > 0 ? ((d.cache_read || 0) / maxTokens) * chartH : 0;
+
+    // Cache read (bottom, blue)
+    ctx.fillStyle = '#58a6ff';
+    const cacheY = pad.top + chartH - cacheH;
+    ctx.fillRect(x, cacheY, barW, cacheH);
+
+    // Output (top, green)
+    ctx.fillStyle = '#3fb950';
+    const outY = cacheY - outH;
+    ctx.beginPath();
+    ctx.roundRect(x, outY, barW, outH, [3, 3, 0, 0]);
+    ctx.fill();
+
+    // X label
+    ctx.fillStyle = '#8b949e';
+    ctx.font = '10px -apple-system, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(d.day.slice(5), x + barW / 2, pad.top + chartH + 16);
+  });
+}
+
+function renderCycleList() {
+  const el = document.getElementById('cycle-list');
+  const { items } = costsData;
+  if (!items.length) { el.innerHTML = '<div class="empty">No cycles recorded</div>'; return; }
+
+  el.innerHTML = `
+    <div class="cycle-row cycle-header">
+      <div>Time</div>
+      <div>Turns</div>
+      <div>Cost</div>
+      <div>Duration</div>
+      <div>Tokens Out</div>
+      <div>Status</div>
+    </div>
+    ${items.map(c => `
+      <div class="cycle-row">
+        <div>${new Date(c.timestamp).toLocaleString([], { month:'short', day:'numeric', hour:'2-digit', minute:'2-digit' })}</div>
+        <div>${c.num_turns}</div>
+        <div class="cycle-cost" style="color:${c.cost_usd > 2 ? 'var(--red)' : c.cost_usd > 1 ? 'var(--yellow)' : 'var(--green)'}">$${c.cost_usd.toFixed(2)}</div>
+        <div>${formatDuration(c.duration_ms)}</div>
+        <div>${formatTokens(c.output_tokens)}</div>
+        <div>${c.is_error ? '<span class="cycle-error">error</span>' : c.no_work ? '<span class="cycle-idle">idle</span>' : `<span style="color:var(--green)">${c.label || 'work'}</span>`}</div>
+      </div>
+    `).join('')}
+  `;
+}
+
+function formatDuration(ms) {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return s + 's';
+  const m = Math.floor(s / 60);
+  if (m < 60) return m + 'm ' + (s % 60) + 's';
+  const h = Math.floor(m / 60);
+  return h + 'h ' + (m % 60) + 'm';
+}
+
+function formatTokens(n) {
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1) + 'K';
+  return String(Math.round(n));
+}
+
+document.getElementById('costs-days-filter').addEventListener('change', loadCosts);
 
 // Helpers
 function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }

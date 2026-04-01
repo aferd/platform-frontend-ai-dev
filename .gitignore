@@ -1,5 +1,6 @@
 repos/
 .credentials
+.env
 extensions/
 .lock
 bot.log
@@ -9,3 +10,10 @@ grooming-notes.md
 report.md
 .chrome-profile/
 costs.jsonl
+__pycache__/
+*.pyc
+.venv/
+uv.lock
+dashboard/node_modules/
+memory-server/src/static/assets/
+memory-server/src/static/index.html

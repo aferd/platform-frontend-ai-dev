@@ -1,0 +1,45 @@
+.PHONY: install run init dashboard costs costs-today costs-week seed-costs stop logs help
+
+LABEL ?= hcc-ai-framework
+
+help: ## Show this help
+	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | awk 'BEGIN {FS = ":.*?## "}; {printf "  \033[36m%-15s\033[0m %s\n", $$1, $$2}'
+
+install: ## Install dependencies with uv
+	uv sync
+
+init: install ## Full setup: install deps, LSP, memory server
+	./init.sh
+
+dashboard: ## Build the dashboard UI
+	cd dashboard && npm run build
+
+run: ## Run the bot (LABEL=hcc-ai-framework by default)
+	uv run dev-bot --label $(LABEL)
+
+stop: ## Stop a running bot (release lock)
+	@if [ -f .lock ]; then \
+		pid=$$(cat .lock 2>/dev/null); \
+		if [ -n "$$pid" ] && kill -0 "$$pid" 2>/dev/null; then \
+			kill "$$pid" && echo "Stopped bot (PID $$pid)"; \
+		else \
+			rm -f .lock && echo "Removed stale lock"; \
+		fi \
+	else \
+		echo "No bot running"; \
+	fi
+
+logs: ## Tail bot log
+	tail -f bot.log
+
+costs: ## Show all cost data
+	./costs.sh all
+
+costs-today: ## Show today's costs
+	./costs.sh today
+
+costs-week: ## Show this week's costs
+	./costs.sh week
+
+seed-costs: ## Import costs.jsonl into the database
+	uv run python scripts/seed-costs.py costs.jsonl
