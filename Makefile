@@ -17,6 +17,9 @@ dashboard: ## Build the dashboard UI
 run: ## Run the bot (LABEL=hcc-ai-framework by default)
 	uv run dev-bot --label $(LABEL)
 
+run-rbac: ## Run the bot with platform-accessmanagement label
+	uv run dev-bot --label hcc-ai-platform-accessmanagement
+
 stop: ## Stop a running bot (release lock)
 	@if [ -f .lock ]; then \
 		pid=$$(cat .lock 2>/dev/null); \

@@ -1,145 +1,133 @@
 # Dev Bot (Rehor)
 
-An autonomous developer agent that picks groomed Jira tickets, implements them, opens PRs, and maintains them through review — all without human intervention. It runs in a polling loop using the Claude Agent SDK (Python) and integrates with Jira, GitHub, and a persistent memory system.
+An autonomous developer agent that picks groomed Jira tickets, implements them, opens PRs, and maintains them through review — all without human intervention. It runs in a polling loop using the Claude Agent SDK (Python) and integrates with Jira, GitHub/GitLab, and a persistent memory system.
+
+## Prerequisites
+
+Before setting up the bot, make sure you have the following installed:
+
+| Dependency | Purpose | Install |
+|------------|---------|---------|
+| [Claude Code](https://docs.anthropic.com/en/docs/claude-code) | Agent runtime (bundled with the SDK) | `npm install -g @anthropic-ai/claude-code` |
+| [uv](https://docs.astral.sh/uv/) | Python package manager | `curl -LsSf https://astral.sh/uv/install.sh \| sh` |
+| [Docker](https://docs.docker.com/get-docker/) + Docker Compose | Memory server, target repo dev environments | Install Docker Desktop |
+| [Node.js](https://nodejs.org/) + npm | TypeScript LSP server | `brew install node` or via nvm |
+| [jq](https://jqlang.github.io/jq/) | JSON processing | `brew install jq` |
+| [gh](https://cli.github.com/) | GitHub CLI | `brew install gh` then `gh auth login` (use SSH protocol) |
+| [glab](https://gitlab.com/gitlab-org/cli) | GitLab CLI (only for GitLab repos) | `brew install glab` then `glab auth login` (use SSH protocol) |
+| SSH keys | Git access to target repos | Must be configured for GitHub and/or GitLab |
+
+The bot also uses the [mcp-atlassian](https://github.com/sooperset/mcp-atlassian) MCP server for Jira integration (configured in `.mcp.json`).
+
+### Authentication
+
+The bot needs credentials for several services. Set these in `.env` (copy from `.env.example` or create manually):
+
+```bash
+# Jira — required
+# Generate your API token at: https://id.atlassian.com/manage-profile/security/api-tokens
+JIRA_URL=https://your-instance.atlassian.net
+JIRA_USERNAME=your-email@company.com
+JIRA_API_TOKEN=your-jira-api-token
+
+# Claude — GCP Vertex AI (service account)
+# Follow the RH internal guide to set up Vertex AI access
+# and generate a service account key file (sa-key.json).
+```
+
+## Quick Start
+
+```bash
+# 1. Clone this repo
+git clone <repo-url> dev-bot && cd dev-bot
+
+# 2. Install Python dependencies and set up LSP + memory server
+make init
+
+# 3. Create your .env file with credentials (see Authentication above)
+cp .env.example .env  # then edit with your values
+
+# 4. Run the bot for a specific team label
+make run LABEL=hcc-ai-framework
+```
+
+The bot will start polling for Jira tickets with the `hcc-ai-framework` label. It logs to stdout and `bot.log`.
+
+### Available make targets
+
+```
+make init            # Full setup: install deps, LSP, start memory server
+make run             # Run the bot (LABEL=hcc-ai-framework by default)
+make run-rbac        # Run the bot with platform-accessmanagement label
+make stop            # Stop a running bot (release lock)
+make logs            # Tail bot log
+make dashboard       # Build the dashboard UI
+make costs           # Show all cost data
+make costs-today     # Show today's costs
+make costs-week      # Show this week's costs
+make seed-costs      # Import costs.jsonl into the database
+make help            # Show all available commands
+```
+
+You can also run the bot directly: `uv run dev-bot --label <your-label>`
 
 ## How it works
 
-The bot operates in **cycles**. Each cycle, it evaluates all of its tracked work and acts on exactly one item, following a strict priority order. This ensures human feedback is never ignored and incomplete work is always finished before new work is started.
+The bot operates in **cycles**. Each cycle, it evaluates all of its tracked work and acts on exactly one item, following a strict priority order:
 
 ### Priority 0: Respond to feedback and finish incomplete work
 
 The bot starts every cycle by checking its tracked tasks for anything that needs immediate attention:
 
 1. **New feedback** — PR review comments, Jira comments, failing CI, or merge conflicts since the bot last addressed a task. Human feedback is always the highest priority.
-2. **Interrupted work** — if the bot ran out of turns mid-implementation (branch created but no PR yet), it picks up where it left off using progress metadata it saved to its task tracker.
+2. **Interrupted work** — if the bot ran out of turns mid-implementation (branch created but no PR yet), it picks up where it left off using progress metadata.
 3. **Unfinished investigations** — investigation tickets where the analysis hasn't been posted to Jira yet.
 
 ### Priority 1: Maintain existing PRs
 
-For each open PR, the bot checks (in order):
-- **CI failures** — reads the failing check, fixes the code, pushes.
-- **Merge conflicts** — rebases on the default branch and force-pushes.
-- **Review feedback** — reads new GitHub review comments and PR comments, addresses each one, pushes, and replies.
-- **Jira comments** — checks for stakeholder feedback on the linked ticket.
-- **Merged PRs** — closes out the task, transitions the Jira ticket to Done, and saves what it learned to memory.
+For each open PR, the bot checks (in order): CI failures, merge conflicts, review feedback, Jira comments, and merged PRs. When a PR merges, it closes the task, transitions the Jira ticket to Done, and saves what it learned to memory.
 
 ### Priority 1.5: Check assigned Jira tickets
 
-Scans tickets assigned to the bot for merged PRs it hasn't noticed or new Jira comments that need a response.
+Scans tickets assigned to the bot for merged PRs it hasn't noticed or new Jira comments.
 
 ### Priority 2: Pick new work
 
-Only when everything is clean — no pending feedback, no interrupted work, all PRs green — the bot looks for new tickets:
+Only when everything is clean — no pending feedback, no interrupted work, all PRs green — the bot looks for new tickets. It searches memory for relevant past learnings, claims the ticket, creates a branch, implements, tests, and opens a PR.
 
-1. Checks capacity (hard cap of 5 concurrent active tasks)
-2. Searches memory for relevant past learnings
-3. Queries Jira for unassigned, groomed tickets
-4. Claims the ticket, creates a branch, implements, tests, opens a PR
-5. Reports back on Jira
+## Preparing tickets for the bot
 
-## Jira integration
+Tickets must be explicitly groomed. The bot never picks random backlog items.
 
-Tickets must be explicitly groomed for the bot. The bot never picks random backlog items.
+### Required labels
 
-**Required labels:**
-- A **primary label** (e.g. `hcc-ai-framework`, `hcc-ai-ui`) — marks the ticket as bot-eligible for a specific team. The bot is started with `--label <primary-label>` and only picks up tickets with that label.
-- `repo:<name>` — identifies the target repo (must match a key in `project-repos.json`)
+- **Primary label** (e.g. `hcc-ai-framework`, `hcc-ai-platform-accessmanagement`) — marks the ticket as bot-eligible for a specific team. The bot only picks up tickets with its configured label.
+- **`repo:<name>`** — identifies the target repo (must match a key in `project-repos.json`). A ticket can have multiple `repo:` labels for cross-repo work.
 
-**Optional labels:**
+### Optional labels
+
 - `needs-investigation` — bot investigates and reports findings instead of implementing
-- `platform-experience-ui` — routes the ticket to the UI sprint instead of the framework sprint
+- `platform-experience-ui` — routes the ticket to the UI sprint (scrum boards only)
 
-The bot assigns itself, transitions the ticket to "In Progress", adds it to the active sprint, and moves it to "Code Review" when the PR is opened. When the PR merges, it moves the ticket to "Done".
+### Interactive grooming
 
-### Grooming a ticket
-
-There's an interactive grooming prompt that walks you through preparing a ticket for the bot. Run it from this repo:
+There's a prompt that walks you through preparing a ticket:
 
 ```bash
 claude --prompt-file prompts/groom.md
 ```
 
-It will ask about the problem, help identify the right repos, suggest labels, and produce a ready-to-create ticket with a proper title, description, and acceptance criteria.
+It helps identify repos, suggests labels, and produces a ready-to-create ticket with acceptance criteria.
 
-## Memory system
+### What makes a good bot ticket
 
-The bot has a persistent memory server (`memory-server/`) that provides two capabilities via MCP:
+- **Clear problem statement** — current vs expected behavior
+- **Specific files or components** if known (saves the bot time)
+- **URL paths** where the issue is visible
+- **Acceptance criteria** as a concrete checklist
+- **Scoped to a single PR** — if it's too big, split it
 
-**Task tracking** — structured records of active work with status, PR links, branch names, and progress metadata. When the bot is interrupted mid-cycle (runs out of turns), it saves its progress (`last_step`, `next_step`, `files_changed`) so the next cycle can resume seamlessly.
-
-**RAG memory** — a vector-searchable knowledge base where the bot stores learnings from completed tickets, PR review feedback, and codebase patterns. Before starting any new ticket, it searches this memory for relevant past experience. This means the bot gets better over time — it won't repeat the same mistakes or miss patterns it has already learned.
-
-The memory server includes a web dashboard at `http://localhost:8080` with:
-- Task and memory browsing with detail panels
-- Semantic search over stored memories
-- 3D embedding visualization (PCA-projected)
-- Live WebSocket updates with toast notifications when the bot modifies data
-
-## Personas
-
-Each repo is assigned a persona (`frontend`, `backend`, `operator`, `config`, `cve`) that provides repo-specific guidelines. Personas live in `personas/<type>/prompt.md` and may include MCP server configs for specialized tools (e.g. PatternFly component docs for frontend repos).
-
-## Visual verification
-
-For UI changes, the bot starts the dev server, navigates to the affected page using chrome-devtools MCP, and takes before/after screenshots. Screenshots are never committed to the repo — they are base64-encoded and embedded as `<img>` tags in the PR description.
-
-## Structure
-
-```
-dev-bot/
-  pyproject.toml         # Python project config (uv workspace root)
-  Makefile               # Common commands (make run, make costs, etc.)
-  bot/                   # Agent runner (Python package)
-    run.py               # Main loop entry point
-    agent.py             # SDK query invocation per cycle
-    config.py            # Config loading + MCP server merging
-    costs.py             # Cost tracking (writes to costs.jsonl)
-  run.sh                 # Legacy shell runner (deprecated)
-  init.sh                # Installs LSP, starts memory server
-  config.json            # Model, polling intervals, Jira config
-  project-repos.json     # repo label -> git URL + persona mapping
-  CLAUDE.md              # Full agent instructions (the bot's brain)
-  .mcp.json              # MCP server connections (Jira, memory, browser)
-  costs.sh               # Cost report script
-  costs.jsonl            # Per-cycle cost records (auto-generated)
-  bot.log                # Full cycle output log
-  memory-server/         # Persistent memory + task tracking (Docker, uv workspace member)
-    src/
-      server.py          # FastMCP + Starlette + WebSocket
-      tools/             # MCP tools (task_*, memory_*)
-      api.py             # REST API for the dashboard
-      static/            # Dashboard UI (HTML/CSS/JS + Three.js)
-    docker-compose.yml   # PostgreSQL (pgvector) + memory server
-  personas/
-    frontend/            # React/TS/PatternFly guidelines + MCP
-    backend/             # Go/Node backend guidelines
-    operator/            # Kubernetes operator guidelines
-    config/              # Config repo guidelines
-    cve/                 # CVE remediation guidelines
-  repos/                 # Cloned target repos (created on demand by the bot)
-```
-
-## Prerequisites
-
-- [Claude Code](https://claude.ai/code) installed and authenticated
-- [uv](https://docs.astral.sh/uv/) for Python dependency management
-- `gh` CLI authenticated with GitHub
-- `glab` CLI authenticated with GitLab (for GitLab repos like app-interface)
-- SSH access to target repos
-- Docker (for the memory server)
-- Node.js + npm (for TypeScript LSP)
-- `jq`
-- Jira credentials set as env vars: `JIRA_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN`
-
-## Setup
-
-```bash
-# Full init (installs deps, LSP, starts memory server)
-make init
-
-# Run the bot for a specific team
-make run LABEL=hcc-ai-framework
-```
+The bot is a good developer but has zero tribal knowledge. Don't assume it knows your team's history.
 
 ## Adding a new repo
 
@@ -147,163 +135,158 @@ make run LABEL=hcc-ai-framework
    ```json
    "my-repo": {
      "url": "git@github.com:RedHatInsights/my-repo.git",
-     "persona": "frontend"
+     "personas": ["frontend"]
    }
    ```
 2. Add a `repo:my-repo` label to the Jira ticket
 
-The bot will clone the repo automatically when it picks up a ticket with that label.
+The bot clones repos automatically when it picks up a ticket.
 
 ### Fork repos
 
-If the bot doesn't have push access to the upstream repo, use a fork. Set `url` to the fork and add an `upstream` field pointing to the original:
+If the bot doesn't have push access to the upstream repo, use a fork:
 
 ```json
 "app-interface": {
-  "url": "git@gitlab.cee.redhat.com:mmarosi/app-interface.git",
+  "url": "git@gitlab.cee.redhat.com:youruser/app-interface.git",
   "upstream": "git@gitlab.cee.redhat.com:service/app-interface.git",
-  "persona": "config",
+  "personas": ["config"],
   "host": "gitlab"
 }
 ```
 
-The bot will clone from the fork, sync from upstream, push branches to the fork, and open MRs targeting the upstream repo.
+The bot clones from the fork, syncs from upstream, pushes branches to the fork, and opens MRs targeting the upstream repo.
 
-## Running everything
+### Multi-persona repos
+
+A repo can support multiple personas. The bot selects the best fit based on the ticket:
+
+```json
+"insights-rbac": {
+  "url": "git@github.com:RedHatInsights/insights-rbac.git",
+  "personas": ["backend", "rbac"]
+}
+```
+
+If a ticket is about RBAC-specific Django work, the bot loads the `rbac` persona. For generic backend work, it uses `backend`.
+
+## Running the services
 
 ### 1. Memory server + dashboard
 
-The memory server runs as two Docker containers (PostgreSQL + Python app). `init.sh` starts them automatically, but you can also manage them directly:
+The memory server runs as Docker containers (PostgreSQL with pgvector + Python app). `make init` starts it automatically.
 
 ```bash
 cd memory-server
 
-# Start (builds if needed)
-docker compose up -d --build
-
-# Check logs
-docker compose logs -f memory-server
-
-# Stop
-docker compose down
-
-# Reset database (wipe all data)
-docker compose down -v && docker compose up -d --build
+docker compose up -d --build    # Start
+docker compose logs -f memory-server  # Check logs
+docker compose down             # Stop
+docker compose down -v && docker compose up -d --build  # Reset database
 ```
 
-Dashboard is at **http://localhost:8080**. It shows tasks, memories, semantic search, and a 3D embedding map. Live updates via WebSocket — you'll see toast notifications when the bot creates or updates entries.
-
-To seed the database with example data from past work:
-
-```bash
-cd memory-server
-docker compose exec memory-server uv run python seed_from_json.py
-```
+Dashboard at **http://localhost:8080** — tasks, memories, semantic search, 3D embedding map. Live WebSocket updates.
 
 ### 2. Browser for visual verification
 
-The bot uses chrome-devtools MCP to take screenshots of UI changes. Start a Chromium/Chrome instance with remote debugging enabled:
+For UI changes, the bot uses chrome-devtools MCP to take screenshots. Start a Chrome/Chromium instance with remote debugging:
 
 ```bash
 ./start-chromium.sh
 ```
 
-This launches Chrome on port 9222 with a separate profile (won't interfere with your normal browser). The `.mcp.json` is already configured to connect to it:
+This launches Chrome on port 9222 with a separate profile. Edit the script to use `chromium` if that's what you have.
 
-```json
-"chrome-devtools": {
-  "command": "npx",
-  "args": ["chrome-devtools-mcp@latest", "--browserUrl", "http://127.0.0.1:9222"]
-}
-```
-
-If you're using Chromium instead of Chrome, edit `start-chromium.sh` and replace `google-chrome` with `chromium` or `chromium-browser`.
-
-### 3. Run the bot
-
-```bash
-# Full init first
-make init
-
-# Start the polling loop for a specific team
-make run LABEL=hcc-ai-framework
-
-# Or directly via uv:
-uv run dev-bot --label hcc-ai-framework
-```
-
-The bot logs to `bot.log` and stdout. Each cycle it:
-1. Invokes the Claude Agent SDK with the full tool set (Jira, GitHub, memory, browser, LSP)
-2. Claude reads `CLAUDE.md` and follows the workflow
-3. When the cycle completes, it sleeps for 5 minutes (or 1 hour if no work was found)
-
-Other useful commands:
-
-```bash
-make help         # Show all available commands
-make stop         # Stop a running bot
-make logs         # Tail bot log
-make costs-today  # Show today's costs
-```
-
-### 4. Configuration
+### 3. Configuration
 
 `config.json` controls the bot's behavior:
 
 ```json
 {
   "claude": {
-    "maxTurns": 100,        // Max tool calls per cycle
+    "maxTurns": 100,
     "model": "claude-opus-4-6"
   },
   "polling": {
-    "intervalSeconds": 300,     // 5 min between cycles when there's work
-    "idleIntervalSeconds": 3600 // 1 hour when no work is found
+    "intervalSeconds": 300,
+    "idleIntervalSeconds": 3600
   }
 }
 ```
 
-MCP servers are configured in `.mcp.json` (project-level) and `personas/*/mcp.json` (per-persona tools like PatternFly docs).
+MCP servers are configured in `.mcp.json` (project-level) and `personas/*/mcp.json` (per-persona tools).
+
+## Personas
+
+Each repo has one or more personas that provide domain-specific guidelines. Personas live in `personas/<type>/prompt.md`:
+
+| Persona | Scope |
+|---------|-------|
+| `frontend` | React/TypeScript/PatternFly repos. Visual verification, `npm run lint/test`. |
+| `backend` | Go and Node.js backend services. |
+| `rbac` | Django/DRF RBAC service (insights-rbac). Docker Compose dev env, `make unittest-fast`. |
+| `operator` | Kubernetes operators (Go). |
+| `config` | Config repos (app-interface). Read-only or GitLab MR workflow. |
+| `cve` | CVE remediation — dependency upgrades and security scanning. |
+
+## Memory system
+
+The bot has persistent memory via MCP:
+
+- **Task tracking** — structured records of active work with status, PR links, and progress metadata. Hard cap of 5 concurrent active tasks. When interrupted mid-cycle, the bot saves progress (`last_step`, `next_step`, `files_changed`) so the next cycle resumes seamlessly.
+- **RAG memory** — vector-searchable knowledge base of learnings from completed tickets, PR review feedback, and codebase patterns. The bot searches this before starting any new ticket, so it improves over time.
 
 ## Cost tracking
 
-Each bot cycle records its cost to `costs.jsonl` — tokens used, duration, model, and USD cost extracted from the Agent SDK's `ResultMessage`.
+Each cycle records its cost to `costs.jsonl` and the memory server database.
 
 ```bash
-# View all recorded cycles
-./costs.sh
-
-# Today's cycles only
-./costs.sh today
-
-# Specific date
-./costs.sh 2026-03-31
-
-# Last 7 days
-./costs.sh week
-
-# Backfill from bot.log (if costs.jsonl is missing or you want to import historical data)
-./costs.sh backfill
+make costs           # All recorded cycles
+make costs-today     # Today only
+make costs-week      # Last 7 days
+./costs.sh 2026-03-31   # Specific date
+./costs.sh backfill     # Import from bot.log
 ```
 
-Each entry in `costs.jsonl` is a JSON object:
+The dashboard at http://localhost:8080 also shows cost charts with per-cycle breakdowns by work type.
 
-```json
-{
-  "timestamp": "2026-03-31T12:00:00+00:00",
-  "label": "hcc-ai-framework",
-  "session_id": "...",
-  "num_turns": 28,
-  "duration_ms": 179225,
-  "cost_usd": 1.38,
-  "input_tokens": 40,
-  "output_tokens": 5074,
-  "cache_read_tokens": 1579336,
-  "cache_write_tokens": 74519,
-  "model": "claude-opus-4-6",
-  "is_error": false,
-  "no_work": false
-}
+## Project structure
+
+```
+dev-bot/
+  pyproject.toml         # Python project config (uv workspace root)
+  Makefile               # Common commands
+  bot/                   # Agent runner (Python package)
+    run.py               # Main loop entry point
+    agent.py             # SDK query invocation per cycle
+    config.py            # Config loading + MCP server merging
+    costs.py             # Cost tracking
+  config.json            # Model, polling intervals, Jira config
+  project-repos.json     # Repo label -> git URL + persona mapping
+  CLAUDE.md              # Full agent instructions (the bot's brain)
+  .mcp.json              # MCP server connections (Jira, memory, browser)
+  .env                   # Credentials (not committed)
+  init.sh                # Installs LSP, downloads BrowserMCP, starts memory server
+  costs.sh               # Cost report CLI
+  start-chromium.sh      # Launch Chrome with remote debugging
+  memory-server/         # Persistent memory + task tracking
+    src/
+      server.py          # FastMCP + Starlette + WebSocket
+      tools/             # MCP tools (task_*, memory_*)
+      api.py             # REST API for the dashboard
+      static/            # Dashboard UI (React + Vite, built assets)
+    docker-compose.yml   # PostgreSQL (pgvector) + memory server
+  personas/              # Per-repo-type guidelines
+    frontend/            # React/TS/PatternFly + PatternFly MCP
+    backend/             # Go/Node backend
+    rbac/                # Django/DRF RBAC service
+    operator/            # Kubernetes operator
+    config/              # Config repo
+    cve/                 # CVE remediation
+  prompts/               # Interactive prompts (grooming, etc.)
+  dashboard/             # Dashboard source (React + Vite + TypeScript)
+  repos/                 # Cloned target repos (created on demand)
+  scripts/               # Utility scripts
 ```
 
 ## Example

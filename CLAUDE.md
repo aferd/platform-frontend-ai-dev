@@ -251,7 +251,7 @@ Before starting work on a ticket, use `jira_get_issue` to read the full ticket i
 5. **Prepare the repos**: Collect all `repo:` labels from the ticket. For each one, match it to `project-repos.json` to find the repo config. Each repo has:
    - `url` — the git clone URL (may be a fork — see `upstream` below)
    - `upstream` (optional) — the upstream repo URL. When present, `url` is a **fork** and `upstream` is the original repo. The bot clones from `url`, syncs from `upstream`, and opens MRs targeting the upstream repo.
-   - `persona` — the type of project (`frontend`, `backend`, `operator`, `config`, etc.)
+   - `personas` — array of applicable persona types (e.g. `["frontend", "cve"]`). A repo can have multiple personas — pick the one most relevant to the ticket at hand.
    - `host` (optional) — `"gitlab"` for GitLab repos. If absent, the repo is on GitHub.
    - `readonly` (optional) — if `true`, do not push or open PRs in this repo, only read it for context
 
@@ -289,12 +289,16 @@ Before starting work on a ticket, use `jira_get_issue` to read the full ticket i
 
    **Read repo-level instructions**: After entering each repo, check if it contains a `CLAUDE.md` file at its root. If it does, read it in full. If that file references other instruction files (e.g. `@AGENTS.md`), read those too. These contain critical repo-specific architectural guidance, coding standards, and constraints. Follow them alongside the persona guidelines. **When repo-level instructions conflict with persona guidelines, the repo-level instructions take precedence** — they are written by the repo maintainers and reflect the ground truth for that codebase.
 
-6. **Load personas**: Collect all unique persona values from the repos involved in this ticket (from `project-repos.json`). For each unique persona, read `personas/<persona>/prompt.md`. If a ticket spans multiple repos with different personas (e.g. a `frontend` repo and a `backend` repo), load ALL persona prompts upfront so you understand the full scope of the work.
+6. **Load personas**: Each repo in `project-repos.json` has a `personas` array listing all applicable persona types. For the ticket at hand:
 
-   **Persona scoping**: Each persona's guidelines apply ONLY when working in repos of that persona type. For example:
-   - Frontend persona rules (PatternFly, visual verification, `npm run lint`) apply in repos with `"persona": "frontend"`.
-   - Backend persona rules apply in repos with `"persona": "backend"`.
-   - Do NOT apply frontend-specific rules (e.g. visual verification) to backend repos, or vice versa.
+   - **Select the best-fit persona** for each repo based on the ticket description. For example, if a repo has `["frontend", "cve"]` and the ticket is about a CVE fix, use the `cve` persona. If it's about a UI change, use `frontend`. If unclear, load all and apply the most relevant guidelines.
+   - For each selected persona, read `personas/<persona>/prompt.md`.
+   - If a ticket spans multiple repos with different personas, load ALL relevant persona prompts upfront.
+
+   **Persona scoping**: Each persona's guidelines apply ONLY when working in repos where that persona was selected. For example:
+   - Frontend persona rules (PatternFly, visual verification, `npm run lint`) apply when using the `frontend` persona.
+   - Backend persona rules apply when using the `backend` persona.
+   - Do NOT apply frontend-specific rules (e.g. visual verification) to backend work, or vice versa.
 
    **Cross-repo coordination**: When a ticket requires changes across multiple repos, plan the work holistically before starting:
    - Identify which changes go in which repo.

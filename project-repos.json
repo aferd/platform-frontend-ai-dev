@@ -1,56 +1,60 @@
 {
   "insights-chrome": {
     "url": "git@github.com:RedHatInsights/insights-chrome.git",
-    "persona": "frontend"
+    "personas": ["frontend", "cve"]
   },
   "astro-virtual-assistant-frontend": {
     "url": "git@github.com:RedHatInsights/astro-virtual-assistant-frontend.git",
-    "persona": "frontend"
+    "personas": ["frontend"]
   },
   "widget-layout": {
     "url": "git@github.com:RedHatInsights/widget-layout.git",
-    "persona": "frontend"
+    "personas": ["frontend"]
   },
   "widget-layout-backend": {
     "url": "git@github.com:RedHatInsights/widget-layout-backend.git",
-    "persona": "backend"
+    "personas": ["backend"]
   },
   "notifications-frontend": {
     "url": "git@github.com:RedHatInsights/notifications-frontend.git",
-    "persona": "frontend"
+    "personas": ["frontend", "cve"]
   },
   "frontend-operator": {
     "url": "git@github.com:RedHatInsights/frontend-operator.git",
-    "persona": "operator"
+    "personas": ["operator"]
   },
   "app-interface": {
     "url": "git@gitlab.cee.redhat.com:mmarosi/app-interface.git",
     "upstream": "git@gitlab.cee.redhat.com:service/app-interface.git",
-    "persona": "config",
+    "personas": ["config"],
     "host": "gitlab"
   },
   "quickstarts": {
     "url": "git@github.com:RedHatInsights/quickstarts.git",
-    "persona": "backend"
+    "personas": ["backend"]
   },
   "learning-resources": {
     "url": "git@github.com:RedHatInsights/learning-resources.git",
-    "persona": "frontend"
+    "personas": ["frontend"]
   },
   "payload-tracker-frontend": {
     "url": "git@github.com:RedHatInsights/payload-tracker-frontend.git",
-    "persona": "cve"
+    "personas": ["frontend", "cve"]
   },
   "pdf-generator": {
     "url": "git@github.com:RedHatInsights/pdf-generator.git",
-    "persona": "cve"
+    "personas": ["backend", "cve"]
   },
   "chrome-service-backend": {
     "url": "git@github.com:RedHatInsights/chrome-service-backend.git",
-    "persona": "backend"
+    "personas": ["backend"]
   },
   "astro-virtual-assistant-v2": {
     "url": "git@github.com:RedHatInsights/astro-virtual-assistant-v2.git",
-    "persona": "backend"
+    "personas": ["backend"]
+  },
+  "insights-rbac": {
+    "url": "git@github.com:RedHatInsights/insights-rbac.git",
+    "personas": ["backend", "rbac"]
   }
 }
