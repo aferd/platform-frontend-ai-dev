@@ -1,4 +1,4 @@
-.PHONY: install run init dashboard costs costs-today costs-week seed-costs stop logs help
+.PHONY: install run init dashboard costs costs-today costs-week seed-costs stop logs help memory-server memory-server-stop
 
 LABEL ?= hcc-ai-framework
 
@@ -46,3 +46,15 @@ costs-week: ## Show this week's costs
 
 seed-costs: ## Import costs.jsonl into the database
 	uv run python scripts/seed-costs.py costs.jsonl
+
+memory-server: ## Start memory server + postgres
+	docker compose -f memory-server/docker-compose.yml up --build
+
+memory-server-stop: ## Stop memory server + postgres
+	docker compose -f memory-server/docker-compose.yml down
+
+docker-up: ## Start full stack (postgres + memory server + bot)
+	docker compose up --build
+
+docker-down: ## Stop full stack
+	docker compose down

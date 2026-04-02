@@ -56,17 +56,21 @@ The bot will start polling for Jira tickets with the `hcc-ai-framework` label. I
 ### Available make targets
 
 ```
-make init            # Full setup: install deps, LSP, start memory server
-make run             # Run the bot (LABEL=hcc-ai-framework by default)
-make run-rbac        # Run the bot with platform-accessmanagement label
-make stop            # Stop a running bot (release lock)
-make logs            # Tail bot log
-make dashboard       # Build the dashboard UI
-make costs           # Show all cost data
-make costs-today     # Show today's costs
-make costs-week      # Show this week's costs
-make seed-costs      # Import costs.jsonl into the database
-make help            # Show all available commands
+make init              # Full setup: install deps, LSP, start memory server
+make run               # Run the bot on host (LABEL=hcc-ai-framework by default)
+make run-rbac          # Run the bot with platform-accessmanagement label
+make stop              # Stop a running bot (release lock)
+make logs              # Tail bot log
+make memory-server     # Start memory server + postgres (standalone)
+make memory-server-stop # Stop standalone memory server
+make docker-up         # Start full stack in Docker (postgres + memory server + bot)
+make docker-down       # Stop full stack
+make dashboard         # Build the dashboard UI
+make costs             # Show all cost data
+make costs-today       # Show today's costs
+make costs-week        # Show this week's costs
+make seed-costs        # Import costs.jsonl into the database
+make help              # Show all available commands
 ```
 
 You can also run the bot directly: `uv run dev-bot --label <your-label>`
@@ -172,22 +176,53 @@ If a ticket is about RBAC-specific Django work, the bot loads the `rbac` persona
 
 ## Running the services
 
-### 1. Memory server + dashboard
+### Option A: Bot on host, memory server in Docker (recommended)
+
+The recommended setup for development. The bot runs directly on your machine using your local Claude Code credentials, while the memory server runs in Docker:
+
+```bash
+# Start memory server + postgres
+make memory-server
+
+# Run bot on host (uses localhost:8080 for memory server)
+make run LABEL=hcc-ai-framework
+```
+
+This is the easiest way to get started — no need for service account keys or bot-specific GitHub credentials. The bot uses your local Claude Code auth and your personal gh/glab CLI sessions.
+
+### Option B: Full stack in Docker
+
+For production-like deployments or CI — everything runs in containers with dedicated bot credentials:
+
+```bash
+# Set secrets (or add to .env — see SOP.md for details)
+export SSH_PRIVATE_KEY_B64=$(base64 -i .ssh/id_ed25519)
+export GPG_PRIVATE_KEY_B64=$(base64 -i .ssh/gpg-private.asc)
+export GH_TOKEN=<your-pat>
+export GOOGLE_SA_KEY_B64=$(base64 -i sa-key.json)
+
+# Start everything
+make docker-up
+
+# Override the bot label
+BOT_LABEL=hcc-ai-platform-accessmanagement make docker-up
+
+# Stop
+make docker-down
+```
+
+### Memory server + dashboard
 
 The memory server runs as Docker containers (PostgreSQL with pgvector + Python app). `make init` starts it automatically.
 
 ```bash
-cd memory-server
-
-docker compose up -d --build    # Start
-docker compose logs -f memory-server  # Check logs
-docker compose down             # Stop
-docker compose down -v && docker compose up -d --build  # Reset database
+make memory-server              # Start
+make memory-server-stop         # Stop
 ```
 
 Dashboard at **http://localhost:8080** — tasks, memories, semantic search, 3D embedding map. Live WebSocket updates.
 
-### 2. Browser for visual verification
+### Browser for visual verification
 
 For UI changes, the bot uses chrome-devtools MCP to take screenshots. Start a Chrome/Chromium instance with remote debugging:
 
