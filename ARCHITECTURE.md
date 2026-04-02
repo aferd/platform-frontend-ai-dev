@@ -225,7 +225,7 @@ Agent cycle completes
 |---------|-------------|--------|
 | Claude (Vertex AI) | GCP service account key | `sa-key.json` + env vars in `.env` |
 | Jira | API token | `JIRA_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN` in `.env` |
-| GitHub | SSH key | `gh auth login` (one-time setup, SSH protocol) |
+| GitHub | SSH key + PAT (`GH_TOKEN`) | SSH for git ops, PAT for gh CLI API calls |
 | GitLab | SSH key | `glab auth login` (one-time setup, SSH protocol) |
 | Memory server | None (localhost) | Hardcoded `http://localhost:8080` |
 | Chrome DevTools | None (localhost) | Hardcoded `http://127.0.0.1:9222` |
@@ -243,21 +243,19 @@ The system deploys as **separate pods**:
 
 This keeps the deployment simple — one memory server serves all bot instances, and each bot is independently scalable by adding new pods with different labels.
 
-### What needs to change
+### Container images
 
-1. **Bot container** — containerize with Docker. Proven as a POC (Dockerfile existed, SSH and auth were the main challenges). Needs:
-   - GCP service account key injected via secret mount
-   - SSH key for git access (shared by gh/glab CLIs)
-   - gh/glab CLI auth config files (`~/.config/gh/`, `~/.config/glab-cli/`) — one-time setup by a human via `gh auth login` / `glab auth login` on the bot account, then baked into the image or mounted
-   - Non-root user (Claude Code rejects root)
+Both images use Red Hat UBI9 base images:
 
-2. **Memory server pod** — already containerized (Docker Compose). Needs:
-   - PostgreSQL connection string pointing to RDS instance
-   - Cluster-internal service for bot pods to reach it (e.g. `memory-server:8080`)
+- **Bot container** (`Dockerfile`) — `ubi9/ubi` with Python 3.12, Node.js 22 (NodeSource), Chromium headless (EPEL), gh CLI, glab CLI, uv. Runs as non-root `botuser` (Claude Code rejects root). Entrypoint decodes secrets from env vars (SSH key, GPG key, SA key), starts Chromium in background, then launches the bot runner.
 
-3. **Chrome/Chromium** — needs a headless browser sidecar or a shared remote debugging endpoint for visual verification of UI changes
+- **Memory server** (`memory-server/Dockerfile`) — multi-stage build. Stage 1: `ubi9/nodejs-22` builds the React dashboard. Stage 2: `ubi9/python-312-minimal` runs the FastMCP app with dashboard assets baked in.
 
-4. **Multiple labels** — each label runs as a separate bot container. All bot containers share a single memory server pod (low traffic, no need to replicate).
+### What needs to change for cluster
+
+1. **Memory server** — PostgreSQL connection string pointing to RDS instance instead of local container. Cluster-internal service for bot pods to reach it (e.g. `memory-server:8080`).
+
+2. **Multiple labels** — each label runs as a separate bot container. All bot containers share a single memory server pod (low traffic, no need to replicate).
 
 ### What stays the same
 
@@ -294,9 +292,8 @@ This keeps the deployment simple — one memory server serves all bot instances,
 │                  │ (pgvector) │     │
 │                  └────────────┘     │
 │                                     │
-│  ┌──────────────────────────┐       │
-│  │ Headless Chrome (shared) │       │
-│  └──────────────────────────┘       │
+│  (Chromium headless runs inside     │
+│   each bot pod on port 9222)        │
 │                                     │
 └──────────────────────┬──────────────┘
                        │
@@ -308,13 +305,14 @@ This keeps the deployment simple — one memory server serves all bot instances,
 
 ### Secrets required
 
-| Secret | Used by |
-|--------|---------|
-| GCP service account key (sa-key.json) | Bot — Claude API via Vertex AI |
-| Jira API token | Bot — mcp-atlassian MCP server |
-| SSH key | Bot — git clone/push, used by both gh and glab CLIs |
-| gh/glab CLI auth config | Bot — API access for PRs/MRs (one-time manual setup per bot account) |
-| RDS PostgreSQL credentials | Memory server |
+| Secret | Env var | Used by |
+|--------|---------|---------|
+| SSH private key (base64) | `SSH_PRIVATE_KEY_B64` | Bot — git clone/push over SSH |
+| GPG private key (base64) | `GPG_PRIVATE_KEY_B64` | Bot — commit signing |
+| GitHub PAT | `GH_TOKEN` | Bot — gh CLI (PR creation, reviews, comments) |
+| GCP service account key (base64) | `GOOGLE_SA_KEY_B64` | Bot — Claude API via Vertex AI |
+| Jira credentials | `JIRA_URL`, `JIRA_USERNAME`, `JIRA_API_TOKEN` | Bot — mcp-atlassian MCP server |
+| RDS PostgreSQL credentials | `DATABASE_URL` | Memory server |
 
 ### Scaling
 

@@ -28,13 +28,23 @@ def load_config(script_dir: Path) -> Config:
 
 
 def load_mcp_servers(script_dir: Path) -> dict:
-    """Load and merge MCP servers from persona configs.
+    """Load and merge MCP servers from bot and persona configs.
 
-    The root .mcp.json (bot-memory, chrome-devtools, mcp-atlassian) is loaded
-    automatically by the SDK via setting_sources=["project"]. This function
-    only loads additional per-persona MCP servers.
+    The root .mcp.json (bot-memory, chrome-devtools) is loaded automatically
+    by the SDK via setting_sources=["project"]. This function loads additional
+    servers: bot-specific (bot/mcp.json for mcp-atlassian) and per-persona.
     """
     servers: dict = {}
+
+    # Bot-specific MCP servers (e.g. mcp-atlassian — kept separate from
+    # .mcp.json so it doesn't interfere with local dev sessions)
+    bot_mcp = script_dir / "bot" / "mcp.json"
+    if bot_mcp.exists():
+        with open(bot_mcp) as f:
+            data = json.load(f)
+        for name, cfg in data.get("mcpServers", {}).items():
+            servers[name] = cfg
+
     for mcp_file in sorted(script_dir.glob("personas/*/mcp.json")):
         with open(mcp_file) as f:
             data = json.load(f)
