@@ -6,9 +6,10 @@ export async function fetchBotStatus() {
   return (await fetch('/api/bot-status')).json();
 }
 
-export async function fetchTasks(params: { status?: string; limit?: number; offset?: number }) {
+export async function fetchTasks(params: { status?: string; exclude_status?: string; limit?: number; offset?: number }) {
   const qs = new URLSearchParams();
   if (params.status) qs.set('status', params.status);
+  if (params.exclude_status) qs.set('exclude_status', params.exclude_status);
   qs.set('limit', String(params.limit ?? 20));
   qs.set('offset', String(params.offset ?? 0));
   return (await fetch('/api/tasks?' + qs)).json();
@@ -16,6 +17,10 @@ export async function fetchTasks(params: { status?: string; limit?: number; offs
 
 export async function deleteTask(jiraKey: string) {
   return fetch('/api/tasks/' + encodeURIComponent(jiraKey), { method: 'DELETE' });
+}
+
+export async function unarchiveTask(jiraKey: string) {
+  return fetch('/api/tasks/' + encodeURIComponent(jiraKey) + '/unarchive', { method: 'POST' });
 }
 
 export async function fetchMemories(params: { category?: string; repo?: string; tag?: string; limit?: number; offset?: number }) {

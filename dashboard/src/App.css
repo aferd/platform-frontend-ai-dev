@@ -108,7 +108,14 @@ header {
   background: var(--surface);
   margin-bottom: 12px;
   gap: 12px;
-  flex-wrap: wrap;
+}
+.bot-banner.expanded {
+  align-items: flex-start;
+}
+.bot-banner.expanded .banner-message {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: unset;
 }
 
 .bot-banner.state-working {
@@ -245,6 +252,19 @@ header {
 .banner-updated {
   color: var(--text-dim);
 }
+.banner-toggle {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 10px;
+  padding: 2px 4px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.banner-toggle:hover {
+  color: var(--text);
+}
 
 /* Tab nav */
 .tab-nav {
@@ -350,6 +370,25 @@ select:focus,
   background: rgba(248, 81, 73, 0.1);
 }
 
+.btn-unarchive {
+  background: transparent;
+  color: var(--accent);
+  border: 1px solid var(--accent);
+  padding: 6px 16px;
+  border-radius: 6px;
+  font-size: 13px;
+  cursor: pointer;
+}
+.btn-unarchive:hover {
+  background: rgba(88, 166, 255, 0.1);
+}
+
+.detail-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 16px;
+}
+
 /* Card grid */
 .card-grid {
   display: flex;
@@ -388,6 +427,10 @@ select:focus,
 .task-card.status-paused {
   border-left-color: var(--text-dim);
 }
+.task-card.status-archived {
+  border-left-color: var(--text-dim);
+  opacity: 0.7;
+}
 
 .task-card-header {
   display: flex;
@@ -425,6 +468,10 @@ select:focus,
 }
 .status-badge.paused {
   background: rgba(139, 148, 158, 0.2);
+  color: var(--text-dim);
+}
+.status-badge.archived {
+  background: rgba(139, 148, 158, 0.15);
   color: var(--text-dim);
 }
 

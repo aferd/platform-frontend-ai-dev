@@ -37,7 +37,32 @@ In this case:
 
 For **backend** repos, non-npm CVEs should be investigated and fixed normally — backends manage their own base images.
 
-### Verification
+### Verification — npm CVEs
 - After fixing an npm CVE, run `npm audit` to confirm the vulnerability is resolved.
 - Run the full test suite to ensure the upgrade doesn't break anything.
 - Use the LSP tool to check for type errors if the upgraded package has API changes.
+
+### Verification — container image scanning (frontend repos)
+
+Frontend repos have a `Dockerfile` (sometimes also `Dockerfile.hermetic`) that builds the production container image. After any CVE fix — whether npm or base image — verify the built image is clean:
+
+1. **Build the image**:
+   ```bash
+   docker build . -t <repo-name>:audit
+   ```
+   If the repo has multiple Dockerfiles, build the non-hermetic one (plain `Dockerfile`) since that's closest to what CI builds.
+
+2. **Scan with grype**:
+   ```bash
+   grype <repo-name>:audit --fail-on medium --only-fixed
+   ```
+   `--fail-on medium` exits non-zero if any medium+ severity vulnerabilities with known fixes remain. `--only-fixed` filters to only show CVEs that have a fix available. Check that the specific CVE from the ticket no longer appears and that the scan passes.
+
+3. **Clean up**:
+   ```bash
+   docker rmi <repo-name>:audit
+   ```
+
+4. **Report results**: Include the grype scan output (or a summary) in the PR description and the Jira comment so reviewers can verify the fix.
+
+If `grype` is not installed, skip the scan and note in the PR description that manual verification with a container scanner is needed.

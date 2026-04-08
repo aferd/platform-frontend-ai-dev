@@ -13,6 +13,7 @@ const statusLabels: Record<string, string> = {
   pr_changes: 'Changes Requested',
   done: 'Done',
   paused: 'Paused',
+  archived: 'Archived',
 };
 
 export default function TaskCard({ task, selected, onClick }: Props) {

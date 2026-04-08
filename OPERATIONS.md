@@ -308,7 +308,7 @@ Check:
 1. Are there tickets with the right primary label? Use the Jira filter above
 2. Are the tickets unassigned?
 3. Do they have a `repo:` label matching `project-repos.json`?
-4. Is the bot at the 5-task capacity limit? Check the dashboard
+4. Is the bot at the 10-task capacity limit? Check the dashboard
 
 ### MCP server fails to connect
 

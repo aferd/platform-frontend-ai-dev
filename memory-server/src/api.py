@@ -15,6 +15,8 @@ async def api_tasks(request: Request) -> JSONResponse:
     limit = int(request.query_params.get("limit", "20"))
     offset = int(request.query_params.get("offset", "0"))
 
+    exclude = request.query_params.get("exclude_status")
+
     if status:
         total = await pool.fetchval(
             "SELECT COUNT(*) FROM tasks WHERE status = $1::task_status", status
@@ -22,6 +24,14 @@ async def api_tasks(request: Request) -> JSONResponse:
         rows = await pool.fetch(
             "SELECT * FROM tasks WHERE status = $1::task_status ORDER BY created_at DESC LIMIT $2 OFFSET $3",
             status, limit, offset,
+        )
+    elif exclude:
+        total = await pool.fetchval(
+            "SELECT COUNT(*) FROM tasks WHERE status != $1::task_status", exclude
+        )
+        rows = await pool.fetch(
+            "SELECT * FROM tasks WHERE status != $1::task_status ORDER BY created_at DESC LIMIT $2 OFFSET $3",
+            exclude, limit, offset,
         )
     else:
         total = await pool.fetchval("SELECT COUNT(*) FROM tasks")
@@ -38,16 +48,35 @@ async def api_tasks(request: Request) -> JSONResponse:
 
 
 async def api_task_delete(request: Request) -> JSONResponse:
-    """Delete a task by jira_key."""
+    """Archive a task by jira_key (soft delete — preserves history)."""
     pool = get_pool()
     jira_key = request.path_params.get("jira_key")
     if not jira_key:
         return JSONResponse({"error": "missing jira_key"}, status_code=400)
-    result = await pool.execute("DELETE FROM tasks WHERE jira_key = $1", jira_key)
-    if result == "DELETE 0":
+    row = await pool.fetchrow(
+        "UPDATE tasks SET status = 'archived'::task_status WHERE jira_key = $1 RETURNING *",
+        jira_key,
+    )
+    if not row:
         return JSONResponse({"error": f"Task {jira_key} not found"}, status_code=404)
-    await bus.publish(Event("task_removed", {"jira_key": jira_key}))
-    return JSONResponse({"deleted": True, "jira_key": jira_key})
+    await bus.publish(Event("task_archived", {"jira_key": jira_key}))
+    return JSONResponse({"archived": True, "jira_key": jira_key, "task": _task(row)})
+
+
+async def api_task_unarchive(request: Request) -> JSONResponse:
+    """Restore an archived task back to paused so the bot can pick it up."""
+    pool = get_pool()
+    jira_key = request.path_params.get("jira_key")
+    if not jira_key:
+        return JSONResponse({"error": "missing jira_key"}, status_code=400)
+    row = await pool.fetchrow(
+        "UPDATE tasks SET status = 'in_progress'::task_status, paused_reason = NULL WHERE jira_key = $1 AND status = 'archived'::task_status RETURNING *",
+        jira_key,
+    )
+    if not row:
+        return JSONResponse({"error": f"Task {jira_key} not found or not archived"}, status_code=404)
+    await bus.publish(Event("task_updated", {"jira_key": jira_key, "status": "in_progress"}))
+    return JSONResponse({"unarchived": True, "jira_key": jira_key, "task": _task(row)})
 
 
 async def api_memories(request: Request) -> JSONResponse:

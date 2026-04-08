@@ -100,7 +100,7 @@ The agent communicates with external systems through [Model Context Protocol](ht
 | Server | Transport | Purpose |
 |--------|-----------|---------|
 | **mcp-atlassian** | stdio | Jira CRUD: search tickets, read/update issues, transitions, comments, sprints |
-| **bot-memory** | SSE (HTTP) | Task tracking (5 concurrent max) + RAG memory (vector search over past learnings) |
+| **bot-memory** | SSE (HTTP) | Task tracking (10 concurrent max) + RAG memory (vector search over past learnings) |
 | **chrome-devtools** | stdio | Browser automation for visual verification — navigate pages, take screenshots |
 | **hcc-patternfly-data-view** | stdio | PatternFly component docs (only loaded for frontend persona repos) |
 
@@ -386,6 +386,6 @@ Both images use Red Hat UBI9 base images:
 
 - Each bot instance handles one label (team). Multiple instances can run in parallel.
 - All instances share the memory server (cross-team learnings are possible).
-- Hard cap of 5 concurrent tasks per bot instance (enforced by memory server).
+- Hard cap of 10 concurrent tasks per bot instance (enforced by memory server).
 - Cycles are sequential within a bot — no concurrency within a single instance.
 - Idle interval (1 hour) keeps costs low when there's no work.

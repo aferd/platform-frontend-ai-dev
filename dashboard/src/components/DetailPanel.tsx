@@ -12,7 +12,8 @@ interface TaskDetailProps {
   type: 'task';
   task: Task;
   onClose: () => void;
-  onDelete: (jiraKey: string) => void;
+  onDelete?: (jiraKey: string) => void;
+  onUnarchive?: (jiraKey: string) => void;
 }
 
 type Props = MemoryDetailProps | TaskDetailProps;
@@ -102,7 +103,7 @@ function MemoryDetail({ memory, onClose, onDelete }: Omit<MemoryDetailProps, 'ty
   );
 }
 
-function TaskDetail({ task, onClose, onDelete }: Omit<TaskDetailProps, 'type'>) {
+function TaskDetail({ task, onClose, onDelete, onUnarchive }: Omit<TaskDetailProps, 'type'> & { onDelete?: (jiraKey: string) => void; onUnarchive?: (jiraKey: string) => void }) {
   const meta = task.metadata || {};
   const prs: Array<{ repo: string; number: number; url: string; host: string }> =
     meta.prs || [];
@@ -114,6 +115,7 @@ function TaskDetail({ task, onClose, onDelete }: Omit<TaskDetailProps, 'type'>) 
     pr_changes: 'Changes Requested',
     done: 'Done',
     paused: 'Paused',
+    archived: 'Archived',
   };
 
   return (
@@ -225,9 +227,18 @@ function TaskDetail({ task, onClose, onDelete }: Omit<TaskDetailProps, 'type'>) 
           </div>
         )}
 
-        <button className="btn-delete" onClick={() => onDelete(task.jira_key)}>
-          Delete Task
-        </button>
+        <div className="detail-actions">
+          {onUnarchive && (
+            <button className="btn-unarchive" onClick={() => onUnarchive(task.jira_key)}>
+              Restore Task
+            </button>
+          )}
+          {onDelete && (
+            <button className="btn-delete" onClick={() => onDelete(task.jira_key)}>
+              Archive Task
+            </button>
+          )}
+        </div>
       </div>
     </div>
   );

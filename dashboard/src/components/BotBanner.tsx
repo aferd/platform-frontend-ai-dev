@@ -8,6 +8,7 @@ interface Props {
 
 export default function BotBanner({ status }: Props) {
   const [elapsed, setElapsed] = useState('');
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (status.state !== 'working' || !status.cycle_start) {
@@ -35,7 +36,7 @@ export default function BotBanner({ status }: Props) {
   }, [status.state, status.cycle_start]);
 
   return (
-    <div className={`bot-banner state-${status.state}`}>
+    <div className={`bot-banner state-${status.state}${expanded ? ' expanded' : ''}`}>
       <div className="banner-left">
         <span className={`indicator-dot ${status.state}`}>
           <span className="ping-ring" />
@@ -63,6 +64,13 @@ export default function BotBanner({ status }: Props) {
         <span className="banner-updated" title={status.updated_at}>
           {timeAgo(status.updated_at)}
         </span>
+        <button
+          className="banner-toggle"
+          onClick={() => setExpanded(!expanded)}
+          title={expanded ? 'Collapse' : 'Expand'}
+        >
+          {expanded ? '\u25B2' : '\u25BC'}
+        </button>
       </div>
     </div>
   );

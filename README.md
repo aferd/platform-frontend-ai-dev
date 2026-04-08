@@ -33,6 +33,12 @@ JIRA_API_TOKEN=your-jira-api-token
 # Claude — GCP Vertex AI (service account)
 # Follow the RH internal guide to set up Vertex AI access
 # and generate a service account key file (sa-key.json).
+
+# GitHub — bot PAT for gh CLI
+GH_TOKEN=ghp_...
+
+# GitLab — personal PAT for glab CLI (api + write_repository scopes)
+GITLAB_TOKEN=glpat-...
 ```
 
 ## Quick Start
@@ -135,29 +141,23 @@ The bot is a good developer but has zero tribal knowledge. Don't assume it knows
 
 ## Adding a new repo
 
-1. Add to `project-repos.json`:
+All repos use forks by default. The bot pushes to the fork and opens PRs/MRs targeting the upstream repo.
+
+1. Fork the repo under the bot's account (e.g. `platex-rehor-bot`):
+   ```bash
+   gh repo fork RedHatInsights/my-repo --clone=false
+   ```
+2. Add to `project-repos.json`:
    ```json
    "my-repo": {
-     "url": "git@github.com:RedHatInsights/my-repo.git"
+     "url": "git@github.com:platex-rehor-bot/my-repo.git",
+     "upstream": "git@github.com:RedHatInsights/my-repo.git"
    }
    ```
-2. Add a `repo:my-repo` label to the Jira ticket
+   For GitLab repos, add `"host": "gitlab"`.
+3. Add a `repo:my-repo` label to the Jira ticket.
 
-The bot clones repos automatically when it picks up a ticket.
-
-### Fork repos
-
-If the bot doesn't have push access to the upstream repo, use a fork:
-
-```json
-"app-interface": {
-  "url": "git@gitlab.cee.redhat.com:youruser/app-interface.git",
-  "upstream": "git@gitlab.cee.redhat.com:service/app-interface.git",
-  "host": "gitlab"
-}
-```
-
-The bot clones from the fork, syncs from upstream, pushes branches to the fork, and opens MRs targeting the upstream repo.
+The bot clones repos automatically when it picks up a ticket. It fetches from `upstream`, creates branches based on the latest upstream code, pushes to `origin` (the fork), and opens PRs/MRs targeting the upstream repo.
 
 ### Persona selection
 
@@ -167,7 +167,25 @@ Personas are NOT hardcoded to repos. The bot dynamically selects the best-fit pe
 
 ### Option A: Bot on host, memory server in Docker (recommended)
 
-The recommended setup for development. The bot runs directly on your machine using your local Claude Code credentials, while the memory server runs in Docker:
+The recommended setup for development. The bot runs directly on your machine while the memory server runs in Docker.
+
+#### 1. Configure `.env`
+
+Copy `.env.example` to `.env` and fill in your credentials. All identity and auth settings are driven by `.env` — at startup, `run.py` reads these and auto-configures git and SSH.
+
+**Git identity** — set `GIT_AUTHOR_NAME`, `GIT_AUTHOR_EMAIL`, `GIT_COMMITTER_NAME`, `GIT_COMMITTER_EMAIL` to commit as the bot account. If unset, your local git config is used.
+
+**GPG signing** — import the bot's GPG key (`gpg --import <key-file>`), then set `GPG_SIGNING_KEY` to the key ID. If unset, commits are not signed.
+
+**SSH keys** — set `BOT_SSH_KEY` and/or `GITLAB_SSH_KEY` to route git traffic through specific keys per host. Paths can be absolute or relative to the repo root. If unset, your default SSH agent is used.
+
+**CLI auth** — set `GH_TOKEN` and/or `GITLAB_TOKEN`, or log in manually:
+```bash
+gh auth login                                       # GitHub
+glab auth login --hostname gitlab.cee.redhat.com    # GitLab
+```
+
+#### 2. Start the services
 
 ```bash
 # Start memory server + postgres
@@ -176,8 +194,6 @@ make memory-server
 # Run bot on host (uses localhost:8080 for memory server)
 make run LABEL=hcc-ai-framework
 ```
-
-This is the easiest way to get started — no need for service account keys or bot-specific GitHub credentials. The bot uses your local Claude Code auth and your personal gh/glab CLI sessions.
 
 ### Option B: Full stack in Docker
 
@@ -258,7 +274,7 @@ Each repo has one or more personas that provide domain-specific guidelines. Pers
 
 The bot has persistent memory via MCP:
 
-- **Task tracking** — structured records of active work with status, PR links, and progress metadata. Hard cap of 5 concurrent active tasks. When interrupted mid-cycle, the bot saves progress (`last_step`, `next_step`, `files_changed`) so the next cycle resumes seamlessly.
+- **Task tracking** — structured records of active work with status, PR links, and progress metadata. Hard cap of 10 concurrent active tasks. When interrupted mid-cycle, the bot saves progress (`last_step`, `next_step`, `files_changed`) so the next cycle resumes seamlessly.
 - **RAG memory** — vector-searchable knowledge base of learnings from completed tickets, PR review feedback, and codebase patterns. The bot searches this before starting any new ticket, so it improves over time.
 
 ## Cost tracking

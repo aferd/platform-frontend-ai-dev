@@ -9,7 +9,7 @@ from ..events import Event, bus
 from ..models import Task
 
 ACTIVE_STATUSES = ("in_progress", "pr_open", "pr_changes")
-MAX_ACTIVE = 5
+MAX_ACTIVE = 10
 
 
 def _row_to_task(row) -> dict:
@@ -34,16 +34,20 @@ def _row_to_task(row) -> dict:
 def register_task_tools(mcp: FastMCP):
 
     @mcp.tool()
-    async def task_list(status: Optional[str] = None) -> list[dict]:
-        """List tasks, optionally filtered by status."""
+    async def task_list(status: Optional[str] = None, include_archived: bool = False) -> list[dict]:
+        """List tasks, optionally filtered by status. Archived tasks are excluded by default."""
         pool = get_pool()
         if status:
             rows = await pool.fetch(
                 "SELECT * FROM tasks WHERE status = $1::task_status ORDER BY created_at",
                 status,
             )
-        else:
+        elif include_archived:
             rows = await pool.fetch("SELECT * FROM tasks ORDER BY created_at")
+        else:
+            rows = await pool.fetch(
+                "SELECT * FROM tasks WHERE status != 'archived'::task_status ORDER BY created_at"
+            )
         return [_row_to_task(r) for r in rows]
 
     @mcp.tool()
@@ -166,13 +170,17 @@ def register_task_tools(mcp: FastMCP):
 
     @mcp.tool()
     async def task_remove(jira_key: str) -> dict:
-        """Remove a completed task."""
+        """Archive a completed task (preserves full history)."""
         pool = get_pool()
-        result = await pool.execute("DELETE FROM tasks WHERE jira_key = $1", jira_key)
-        if result == "DELETE 0":
+        row = await pool.fetchrow(
+            "UPDATE tasks SET status = 'archived'::task_status WHERE jira_key = $1 RETURNING *",
+            jira_key,
+        )
+        if not row:
             raise ValueError(f"Task {jira_key} not found")
-        await bus.publish(Event("task_removed", {"jira_key": jira_key}))
-        return {"removed": True, "jira_key": jira_key}
+        result = _row_to_task(row)
+        await bus.publish(Event("task_archived", {"jira_key": jira_key}))
+        return result
 
     @mcp.tool()
     async def task_check_capacity() -> dict:

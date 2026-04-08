@@ -2,8 +2,15 @@ CREATE EXTENSION IF NOT EXISTS vector;
 
 DO $$ BEGIN
     CREATE TYPE task_status AS ENUM (
-        'in_progress', 'pr_open', 'pr_changes', 'paused', 'done'
+        'in_progress', 'pr_open', 'pr_changes', 'paused', 'done', 'archived'
     );
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
+END $$;
+
+-- Add 'archived' to existing enum if it doesn't have it
+DO $$ BEGIN
+    ALTER TYPE task_status ADD VALUE IF NOT EXISTS 'archived';
 EXCEPTION
     WHEN duplicate_object THEN NULL;
 END $$;

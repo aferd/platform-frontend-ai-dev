@@ -10,6 +10,7 @@ import Memories from './pages/Memories';
 import Search from './pages/Search';
 import Costs from './pages/Costs';
 import EmbeddingMap from './pages/EmbeddingMap';
+import ArchivedTasks from './pages/ArchivedTasks';
 
 function AppInner() {
   const [stats, setStats] = useState<{ tasks: number; memories: number }>({ tasks: 0, memories: 0 });
@@ -46,6 +47,7 @@ function AppInner() {
       if (
         event.type === 'task_added' ||
         event.type === 'task_removed' ||
+        event.type === 'task_archived' ||
         event.type === 'memory_stored' ||
         event.type === 'memory_deleted'
       ) {
@@ -76,6 +78,7 @@ function AppInner() {
 
       <nav className="tab-nav">
         <NavLink to="/tasks">Tasks</NavLink>
+        <NavLink to="/archived">Archive</NavLink>
         <NavLink to="/memories">Memories</NavLink>
         <NavLink to="/search">Search</NavLink>
         <NavLink to="/costs">Costs</NavLink>
@@ -85,6 +88,7 @@ function AppInner() {
       <main>
         <Routes>
           <Route path="/tasks" element={<Tasks />} />
+          <Route path="/archived" element={<ArchivedTasks />} />
           <Route path="/memories" element={<Memories />} />
           <Route path="/search" element={<Search />} />
           <Route path="/costs" element={<Costs />} />

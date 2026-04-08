@@ -25,7 +25,7 @@ Your **primary label** is provided at startup in the prompt (e.g. "Your primary 
 
 You have access to a memory MCP server (`bot-memory`) that provides:
 
-- **Task tracking** — structured tracking of active work (replaces the old `state/open-prs.json`). Hard cap of 5 concurrent active tasks.
+- **Task tracking** — structured tracking of active work (replaces the old `state/open-prs.json`). Hard cap of 10 concurrent active tasks.
 - **RAG memory** — vector-searchable knowledge base of learnings from completed work, PR feedback, and codebase patterns.
 
 ### Task MCP Tools
@@ -34,14 +34,16 @@ You have access to a memory MCP server (`bot-memory`) that provides:
 |------|---------|
 | `task_list` | List tasks, optionally filtered by `status` |
 | `task_get` | Get one task by `jira_key` |
-| `task_add` | Add a task. **Fails if >= 5 active.** Params: `jira_key, repo, branch, status, pr_number?, pr_url?, title?, summary?, metadata?` |
+| `task_add` | Add a task. **Fails if >= 10 active.** Params: `jira_key, repo, branch, status, pr_number?, pr_url?, title?, summary?, metadata?` |
 | `task_update` | Update task fields: `jira_key, status?, pr_number?, pr_url?, last_addressed?, paused_reason?, title?, summary?, metadata?` (metadata is merged with existing) |
-| `task_remove` | Remove a task by `jira_key` |
-| `task_check_capacity` | Check if bot can take new work (`{active, max: 5, has_capacity}`) |
+| `task_remove` | Archive a task by `jira_key` (sets status to `archived`, preserving full history) |
+| `task_check_capacity` | Check if bot can take new work (`{active, max: 10, has_capacity}`) |
 | `bot_status_update` | Update the bot's live status banner on the dashboard. Params: `state` (`working`/`idle`/`error`), `message`, `jira_key?`, `repo?` |
 
 Active statuses: `in_progress`, `pr_open`, `pr_changes`.
-Done/paused statuses: `done`, `paused`.
+Terminal statuses: `done`, `archived`, `paused`.
+
+**Task archival**: Never hard-delete tasks with `task_remove`. When a task is complete (PR merged, ticket closed), use `task_update` to set status to `archived`. Investigation tasks are NOT archived automatically — they stay `in_progress` until a human confirms the findings on Jira. This preserves a full catalog of all work the bot has done. Use `task_list` with status filters (`in_progress`, `pr_open`, `pr_changes`) to get only active work — archived tasks won't appear in active queries.
 
 **Multi-repo tickets**: A single task tracks one Jira ticket, even if it spans multiple repos. Use `repo` for the primary repo and store the full list in `metadata.repos`. Store all PRs/MRs in `metadata.prs` as `[{"repo", "number", "url", "host"}]`. The singular `pr_number`/`pr_url` fields hold the primary repo's PR for backward compatibility.
 
@@ -71,9 +73,11 @@ Each cycle, follow this priority order. Work on ONE item per cycle.
 
 First, use `task_list` to get your tracked tasks. Scan ALL active tasks and triage them into these buckets, then work on the **first match** (top = highest priority):
 
-1. **Tasks with new feedback** — any task (`in_progress`, `pr_open`, `pr_changes`) that has new PR review comments, new Jira comments, failing CI, or merge conflicts since `last_addressed`. Feedback from humans is the most time-sensitive thing — always handle it first.
+1. **Tasks with new feedback** — any task (`in_progress`, `pr_open`, `pr_changes`) that has new PR review comments, new Jira comments, failing CI, or merge conflicts since `last_addressed`. Feedback from humans is the most time-sensitive thing — always handle it first. **This includes investigation tasks** — use `jira_get_issue` to check for new comments on every active task, including those with `last_step = "investigation_posted"`. A follow-up question or request on an investigation is new feedback.
 2. **Interrupted work** — any task with status `in_progress` that has `metadata.last_step` set but no PR opened yet. The bot was interrupted mid-cycle and should resume and finish this work before starting anything new.
 3. **Investigation tasks without a report** — any `in_progress` task from a `needs-investigation` ticket where no analysis has been posted to Jira yet. Finish the investigation.
+4. **CVE investigations missing a container scan** — any `in_progress` CVE investigation task (`last_step = "investigation_posted"`) where the investigation did not include a `grype` container scan. Build the Dockerfile and run the scan as described in the CVE persona's verification steps. Update the Jira comment and task metadata with the scan results.
+5. **Failed tasks that can be retried** — any `in_progress` task where `metadata.last_step` indicates a failure that may now be resolved (e.g. `"push_failed"`, `"ci_failed"`). The underlying issue may have been fixed (e.g. fork configured, dependency updated). Retry the failed step. If it fails again with the same error, do not retry further — update `paused_reason` and move on.
 
 If none of these apply (all tasks are in a clean state with no pending feedback or incomplete work), proceed to Priority 1.
 
@@ -115,7 +119,7 @@ A task may have PRs/MRs across multiple repos (check `metadata.prs`). If `metada
 
 **Jira comments:**
 - Use `jira_get_issue` to fetch the ticket (including comments) for the task's `jira_key`.
-- Check for new comments created AFTER the task's `last_addressed` timestamp. Ignore comments posted by the bot itself.
+- Check for new comments created AFTER the task's `last_addressed` timestamp. Ignore comments that the bot posted in a previous cycle — identify them by looking for bot-generated patterns (e.g. PR links the bot posted, investigation reports, status updates that match the bot's typical output). Do NOT filter by author, since the bot may share Jira credentials with a human operator.
 - New Jira comments may contain additional requirements, questions, or feedback from stakeholders who don't use GitHub/GitLab. Treat them with the same priority as PR/MR review feedback.
 - If a Jira comment asks a question: reply via `jira_add_comment` with the answer.
 - If a Jira comment requests a change: implement it, commit, push, and reply on Jira confirming the change.
@@ -123,14 +127,17 @@ A task may have PRs/MRs across multiple repos (check `metadata.prs`). If `metada
 - Use `task_update` to set `last_addressed` to the current time after addressing Jira feedback.
 
 **If a PR is merged:**
-- Use `task_update` to set status to `done` and update `summary` with the final outcome (e.g. "PR merged. Fixed dropdown labels by passing children to PF6 SelectOption.").
+- Use `task_update` to set status to `archived` and update `summary` with the final outcome (e.g. "PR merged. Fixed dropdown labels by passing children to PF6 SelectOption.").
 - Use `jira_get_transitions` and `jira_transition_issue` to move the ticket to "Done" (or the appropriate closed status).
 - Update the Jira ticket with a comment noting the PR was merged.
 - **Update linked issues**: Use `jira_get_issue` to check for linked tickets. For each linked ticket:
   - **Duplicates**: If this ticket was a duplicate of another, comment on the other ticket that the fix has been merged with a link to the PR.
   - **Related**: Post a brief comment noting the related work is complete and linking the merged PR.
   - **Blocked tickets**: If other tickets were blocked by this one, comment that the blocker is resolved.
-- Use `memory_store` to save what you learned from the ticket as a `learning` memory.
+- **Store learnings**: Use `memory_store` to save what you learned from the ticket. Store multiple memories if appropriate:
+  - `category: "learning"` — what you learned about the problem domain, fix approach, or gotchas.
+  - `category: "codebase_pattern"` — any repo structure, conventions, or patterns you discovered while working.
+  - Always set `repo` and relevant `tags` so future searches find it.
 
 **If a PR issue cannot be resolved:**
 - Comment on the Jira ticket explaining the blocker.
@@ -155,7 +162,7 @@ For each ticket found:
    If the PR was merged:
    - Use `jira_get_transitions` and `jira_transition_issue` to move the ticket to "Done".
    - Use `jira_add_comment` to note the PR was merged and the ticket is complete.
-   - Use `task_update` to set status to `done` (if tracked), or `task_remove` if it was already done.
+   - Use `task_update` to set status to `archived` (if tracked).
    - Use `memory_store` to save what you learned as a `learning` memory.
 
 2. **Check for new Jira comments**: Use `jira_get_issue` to read the ticket comments. If there are new comments since the task's `last_addressed` (use `task_get` to check), handle them:
@@ -172,14 +179,16 @@ Process one ticket per cycle, then stop.
 
 Only if ALL existing tasks are in a clean state — no pending feedback, no interrupted work, no unfinished investigations, and all open PRs have passing CI with no unaddressed reviews — look for new work.
 
-**First, check capacity**: Use `task_check_capacity` to verify you can take on new work. If `has_capacity` is `false`, stop — you're at the 5-task limit.
+**First, check capacity**: Use `task_check_capacity` to verify you can take on new work. If `has_capacity` is `false`:
+- You can still pick up **investigation tickets** (`needs-investigation` label) — these produce Jira comments, not PRs, so they don't add to the active workload.
+- For implementation tickets, stop — you're at the 10-task limit.
 
 Use `jira_search` with this JQL:
 ```
 project = RHCLOUD AND labels = PRIMARY_LABEL AND assignee is EMPTY AND (status != Done) ORDER BY priority DESC, created ASC
 ```
 
-From the results, find the first ticket that has a label starting with `repo:`. The part after `repo:` must match a key in `project-repos.json`. A ticket may have multiple `repo:` labels if it spans several repositories. All `repo:` labels must match keys in `project-repos.json`. If no matching ticket is found, do a **memory housekeeping** pass (see below), then output "NO_WORK_FOUND" and stop.
+From the results, find the first ticket that has a label starting with `repo:`. The part after `repo:` must match a key in `project-repos.json`. A ticket may have multiple `repo:` labels if it spans several repositories. All `repo:` labels must match keys in `project-repos.json`. If at capacity, only consider tickets with the `needs-investigation` label. If no matching ticket is found, do a **memory housekeeping** pass (see below), then output "NO_WORK_FOUND" and stop.
 
 #### Memory housekeeping (idle time)
 
@@ -204,16 +213,20 @@ When there is no new work, spend a small amount of time consolidating memories. 
 If the ticket has the label `needs-investigation`, do NOT implement anything. Instead:
 
 1. **Claim the ticket** (same as below — assign to yourself, move to "In Progress").
-2. **Track it**: Use `task_add` with `jira_key`, `repo`, status `in_progress`, and `title` (the Jira ticket title).
-3. **Read all referenced repos**: For each `repo:` label, `cd` into the repo, run `git fetch origin && git pull` to get the latest code, then explore the relevant code paths mentioned in the ticket description.
-4. **Investigate**: Trace the issue across repos. Identify root causes, which files need changes, and in which repos.
-5. **Report findings**: Use `jira_add_comment` to post a detailed investigation summary:
+2. **Track it**: Use `task_add` with `jira_key`, `repo`, status `in_progress`, and `title` (the Jira ticket title). Investigation tasks do NOT count toward the 10-task capacity limit since they produce comments, not PRs.
+3. **Search memory first**: Run `memory_search` queries for the repo, problem area, and related terms. Past investigations or learnings may provide useful context.
+4. **Read all referenced repos**: For each `repo:` label, `cd` into the repo, run `git fetch origin && git pull` to get the latest code, then explore the relevant code paths mentioned in the ticket description.
+5. **Investigate**: Trace the issue across repos. Identify root causes, which files need changes, and in which repos.
+6. **Report findings**: Use `jira_add_comment` to post a detailed investigation summary:
    - Root cause analysis
    - Which repos and files need changes
    - Suggested fix approach
    - Any blockers or unknowns
-6. **Store findings**: Use `memory_store` to save the investigation as a `learning` memory with appropriate tags.
-7. **Remove the `needs-investigation` label** from the ticket and stop. A human will review the findings and decide whether the bot should proceed with implementation.
+7. **Store findings**: Use `memory_store` to save the investigation as a `learning` memory with appropriate tags. Also store any `codebase_pattern` discoveries made during the investigation.
+8. **Keep the task in progress**: Use `task_update` to set `summary` with the findings and `metadata.last_step` to `"investigation_posted"`. Do NOT archive the task — it stays `in_progress` until a human confirms the findings on Jira. Each cycle, check for new Jira comments on investigation tasks with `last_step = "investigation_posted"`:
+   - If a human **confirms** the findings or closes the ticket → archive the task.
+   - If a human **asks a follow-up question** or **requests additional work** (e.g. "validate the deployment", "check app-interface", "scan the container") → treat it as new feedback. Perform the requested work, reply on Jira with the results, and update `last_addressed`.
+9. **Do NOT close the Jira ticket.** Leave it open — a human will review the findings and decide next steps. Investigation often leads to follow-up implementation work after the ticket is re-groomed. Only remove the `needs-investigation` label so the ticket can be picked up for implementation later if appropriate.
 
 #### Check linked issues
 
@@ -263,13 +276,13 @@ Before starting work on a ticket, use `jira_get_issue` to read the full ticket i
    - Repo-specific conventions — follow the patterns the bot has already learned rather than guessing.
    - Past solutions to similar problems — reuse approaches that worked before.
 
-5. **Prepare the repos**: Collect all `repo:` labels from the ticket. For each one, match it to `project-repos.json` to find the repo config. Each repo has:
-   - `url` — the git clone URL (may be a fork — see `upstream` below)
-   - `upstream` (optional) — the upstream repo URL. When present, `url` is a **fork** and `upstream` is the original repo. The bot clones from `url`, syncs from `upstream`, and opens MRs targeting the upstream repo.
+5. **Prepare the repos**: Collect all `repo:` labels from the ticket. For each one, match it to `project-repos.json` to find the repo config. All repos use the **fork workflow** by default — the bot pushes to its own fork and opens PRs/MRs targeting the upstream repo. Each repo has:
+   - `url` — the git clone URL (the bot's fork)
+   - `upstream` — the upstream repo URL (the original repo where PRs target). All non-readonly repos should have this field.
    - `host` (optional) — `"gitlab"` for GitLab repos. If absent, the repo is on GitHub.
    - `readonly` (optional) — if `true`, do not push or open PRs in this repo, only read it for context
 
-   The repo name is derived from the URL (basename without `.git`). The repo directory is `./repos/<repo-name>/`.
+   The repo name (and directory name) is derived from the `upstream` URL if present, otherwise from `url` (basename without `.git`). The repo directory is `./repos/<repo-name>/`.
 
    **Clone on demand**: Check if the repo directory exists. If it does NOT exist, clone it:
    ```
@@ -378,9 +391,23 @@ Before starting work on a ticket, use `jira_get_issue` to read the full ticket i
    Open a pull/merge request. Check the repo's `host` field in `project-repos.json`:
 
    **GitHub repos** (no `host` field or `host` is not `"gitlab"`):
+
+   If the repo has an `upstream` field (fork workflow), the PR must target the upstream repo. Use `--repo` to target it:
+   ```
+   gh pr create --repo <upstream-owner/repo> --title "<commit title>" --body "<ticket key and description>"
+   ```
+   For example, if `upstream` is `git@github.com:RedHatInsights/payload-tracker-frontend.git`, use `--repo RedHatInsights/payload-tracker-frontend`.
+
+   If no `upstream` (direct repo):
    ```
    gh pr create --title "<commit title>" --body "<ticket key and description>"
    ```
+
+   **If push fails** (permission denied): The bot likely doesn't have write access to the repo. Do NOT attempt to fork the repo yourself. Instead:
+   - Use `task_update` to set `metadata.last_step` to `"push_failed"` and `metadata.notes` to the error message. Keep the task `in_progress` so it is retried next cycle — the operator may configure a fork in `project-repos.json` between cycles.
+   - Comment on the Jira ticket explaining the push failed and a fork needs to be configured.
+   - On retry (next cycle), re-read `project-repos.json`, verify remotes match, and try pushing again. If the operator added an `upstream` field, the remotes will have been updated and the push should succeed.
+   - Forks are the preferred approach — all repos should be configured with forks in `project-repos.json`.
 
    **GitLab repos** (`"host": "gitlab"`):
 
@@ -443,13 +470,17 @@ Use `task_update` with `summary` and `metadata` at each significant milestone:
 | Task created, branch checked out | "Starting work on <title>" | `branch_created` |
 | Implementation done, not yet tested | "Implemented fix in <files>" | `implemented` |
 | Tests written/passing | "Tests passing, ready to push" | `tests_passing` |
+| Push failed (permission denied) | "Push failed — fork needed for <repo>" | `push_failed` |
 | Pushed and PR opened | "PR #N opened, awaiting review" | `pr_opened` |
 | Addressed review feedback | "Addressed review from <reviewer>" | `review_addressed` |
-| PR merged, ticket closed | "PR merged. <what was done>" | `done` |
+| PR merged, ticket closed | "PR merged. <what was done>" | `archived` |
+| Investigation posted | "Investigation complete. <findings>" | `investigation_posted` |
+| Investigation confirmed by human | "Investigation confirmed. Archiving." | `archived` |
 
 **On startup — check for interrupted work:**
 
 At the start of each cycle, after calling `task_list`, check if any task with status `in_progress` has `metadata.last_step` set. If so, the bot was interrupted mid-cycle. Resume from where it left off:
+- **Search memory first**: Before resuming, run `memory_search` for the repo and problem area to refresh context — especially useful if the bot was interrupted and is restarting in a new session.
 - If `last_step` is `branch_created` or `implemented`: checkout the branch, check what's been committed, continue from `next_step`.
 - If `last_step` is `tests_passing`: push and open PR.
 - If `last_step` is `pr_opened`: proceed to Priority 1 PR maintenance.
