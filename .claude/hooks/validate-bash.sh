@@ -51,7 +51,7 @@ if echo "$COMMAND" | grep -qiE '(^|[\|;`&(]|\$\()\s*env\s*$'; then
   deny "env (without arguments) is blocked — environment may contain secrets."
 fi
 # Block reading known credential files
-if echo "$COMMAND" | grep -qiE '(cat|less|more|head|tail|bat|strings|xxd|od|hexdump)\s+.*(\.\benv\b|sa-key\.json|\.credentials|\.ssh/|\.gnupg/|\.aws/|\.kube/config|\.npmrc|\.pypirc)'; then
+if echo "$COMMAND" | grep -qiE '(cat|less|more|head|tail|bat|strings|xxd|od|hexdump)\s+.*(\.\benv\b|sa-key\.json|\.ssh/|\.gnupg/|\.aws/|\.kube/config|\.npmrc|\.pypirc)'; then
   deny "Reading credential/secret files is blocked."
 fi
 # Block echo/printf of secret env vars

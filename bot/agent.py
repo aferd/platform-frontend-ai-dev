@@ -138,9 +138,9 @@ async def run_cycle(
                             if text:
                                 # Log full text (truncated)
                                 logger.info("[agent] %s", text[:300])
-                                # Push to dashboard (shorter)
+                                # Push to dashboard
                                 await _push_status(
-                                    http, "working", text[:150]
+                                    http, "working", text[:500]
                                 )
                         elif hasattr(block, "name"):
                             desc = _describe_tool_use(block)

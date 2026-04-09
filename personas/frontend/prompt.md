@@ -38,7 +38,7 @@ The same applies when a PR reviewer asks for a screenshot — start the dev serv
 2. **Navigate to the page**: Use the chrome-devtools MCP `navigate_page` tool to open the affected page URL.
 
 3. **Handle SSO login**: The page will redirect to an SSO/Keycloak login page. This is a two-step login flow:
-   - Read the `.credentials` file in the dev-bot root directory to get `sso.username` and `sso.password`.
+   - Read the `SSO_USERNAME` and `SSO_PASSWORD` environment variables (e.g. `echo $SSO_USERNAME`).
    - Take a snapshot to find the username input field and "Next" button.
    - Use `fill` to enter the username, then `click` the "Next" button.
    - Wait for the password field to appear (use `wait_for` with text `["Password"]`).

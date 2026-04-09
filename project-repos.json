@@ -100,8 +100,20 @@
     "url": "git@github.com-bot:platex-rehor-bot/frontend-development-proxy.git",
     "upstream": "git@github.com:RedHatInsights/frontend-development-proxy.git"
   },
+  "insights-rbac-ui": {
+    "url": "git@github.com-bot:platex-rehor-bot/insights-rbac-ui.git",
+    "upstream": "git@github.com:RedHatInsights/insights-rbac-ui.git"
+  },
+  "user-preferences-frontend": {
+    "url": "git@github.com-bot:platex-rehor-bot/user-preferences-frontend.git",
+    "upstream": "git@github.com:RedHatInsights/user-preferences-frontend.git"
+  },
   "caddy-ubi": {
     "url": "git@gitlab.cee.redhat.com:insights-platform/caddy-ubi.git",
     "host": "gitlab"
+  },
+  "api-documentation-frontend": {
+    "url": "git@github.com-bot:platex-rehor-bot/api-documentation-frontend.git",
+    "upstream": "git@github.com:RedHatInsights/api-documentation-frontend.git"
   }
 }
