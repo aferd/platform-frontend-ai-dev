@@ -17,10 +17,10 @@ RUN dnf install -y --nodocs --allowerasing \
     socat \
     && dnf clean all
 
-# Node.js 22 via NodeSource (UBI repos only have Node 16)
-RUN curl -fsSL https://rpm.nodesource.com/setup_22.x | bash - \
-    && dnf install -y --nodocs nodejs \
-    && dnf clean all
+# Node.js 22 (official binary tarball)
+RUN ARCH=$(uname -m | sed 's/x86_64/x64/' | sed 's/aarch64/arm64/') \
+    && curl -fsSL "https://nodejs.org/dist/v22.15.0/node-v22.15.0-linux-${ARCH}.tar.gz" \
+    | tar -xz -C /usr/local --strip-components=1
 
 
 # Make python3.12 the default
