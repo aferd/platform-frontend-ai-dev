@@ -1,5 +1,6 @@
 """REST API endpoints for the web dashboard."""
 import json
+from datetime import date as date_type
 
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -281,22 +282,19 @@ async def api_costs(request: Request) -> JSONResponse:
     if request.method == "POST":
         return await api_costs_add(request)
     pool = get_pool()
-    days = int(request.query_params.get("days", "30"))
     limit = int(request.query_params.get("limit", "200"))
+    date_filter, date_params = _parse_date_filter(request)
 
+    pidx = len(date_params) + 1
     rows = await pool.fetch(
-        """
-        SELECT * FROM cycles
-        WHERE timestamp > NOW() - make_interval(days => $1)
-        ORDER BY timestamp DESC LIMIT $2
-        """,
-        days, limit,
+        f"SELECT * FROM cycles WHERE {date_filter} ORDER BY timestamp DESC LIMIT ${pidx}",
+        *date_params, limit,
     )
     items = [_cycle(r) for r in rows]
 
     # Daily aggregates
     daily_rows = await pool.fetch(
-        """
+        f"""
         SELECT DATE(timestamp) AS day,
                COUNT(*) AS cycles,
                SUM(cost_usd) AS total_cost,
@@ -309,11 +307,11 @@ async def api_costs(request: Request) -> JSONResponse:
                SUM(CASE WHEN no_work THEN 1 ELSE 0 END) AS idle_cycles,
                SUM(CASE WHEN is_error THEN 1 ELSE 0 END) AS error_cycles
         FROM cycles
-        WHERE timestamp > NOW() - make_interval(days => $1)
+        WHERE {date_filter}
         GROUP BY DATE(timestamp)
         ORDER BY day DESC
         """,
-        days,
+        *date_params,
     )
     daily = [{
         "day": str(r["day"]),
@@ -366,6 +364,194 @@ async def api_costs_add(request: Request) -> JSONResponse:
     cycle = _cycle(row)
     await bus.publish(Event("cycle_recorded", cycle))
     return JSONResponse(cycle, status_code=201)
+
+
+def _parse_date_filter(request: Request):
+    """Build date filter clause + params from request query params."""
+    days = int(request.query_params.get("days", "30"))
+    date_from = request.query_params.get("from")
+    date_to = request.query_params.get("to")
+
+    if date_from and date_to:
+        return (
+            "timestamp >= $1 AND timestamp < ($2 + interval '1 day')",
+            [date_type.fromisoformat(date_from), date_type.fromisoformat(date_to)],
+        )
+    if date_from:
+        return "timestamp >= $1", [date_type.fromisoformat(date_from)]
+    if date_to:
+        return "timestamp < ($1 + interval '1 day')", [date_type.fromisoformat(date_to)]
+    return "timestamp > NOW() - make_interval(days => $1)", [days]
+
+
+async def api_analytics(request: Request) -> JSONResponse:
+    """GET /api/analytics — aggregated stats for the analytics dashboard."""
+    pool = get_pool()
+    date_filter, date_params = _parse_date_filter(request)
+
+    # Work type breakdown (derived from ticket titles + work_type)
+    work_type_rows = await pool.fetch(
+        f"""
+        SELECT
+            CASE
+                WHEN summary ILIKE '%%investigation%%' OR work_type = 'investigation' THEN 'investigation'
+                WHEN jira_key IS NOT NULL AND (
+                    summary ILIKE '%%CVE%%' OR summary ILIKE '%%cve%%'
+                    OR jira_key IN (SELECT DISTINCT jira_key FROM tasks WHERE title ILIKE '%%CVE%%')
+                ) THEN 'cve'
+                WHEN work_type = 'pr_review' THEN 'pr_review'
+                WHEN work_type = 'new_ticket' THEN 'new_ticket'
+                WHEN no_work THEN 'idle'
+                WHEN is_error THEN 'error'
+                ELSE 'other'
+            END AS category,
+            COUNT(*) AS cycles,
+            ROUND(SUM(cost_usd)::numeric, 2) AS total_cost,
+            ROUND(AVG(cost_usd)::numeric, 2) AS avg_cost,
+            ROUND(AVG(num_turns)::numeric, 1) AS avg_turns,
+            ROUND(AVG(duration_ms)::numeric, 0) AS avg_duration_ms
+        FROM cycles
+        WHERE {date_filter}
+        GROUP BY category
+        ORDER BY cycles DESC
+        """,
+        *date_params,
+    )
+
+    # Per-repo breakdown
+    repo_rows = await pool.fetch(
+        f"""
+        SELECT repo,
+            COUNT(DISTINCT jira_key) AS tickets,
+            COUNT(*) AS cycles,
+            ROUND(SUM(cost_usd)::numeric, 2) AS total_cost,
+            ROUND(AVG(num_turns)::numeric, 1) AS avg_turns
+        FROM cycles
+        WHERE {date_filter} AND repo IS NOT NULL AND NOT no_work
+        GROUP BY repo
+        ORDER BY cycles DESC
+        """,
+        *date_params,
+    )
+
+    # Ticket lifecycle — cycles per ticket, impl vs review, cost, time to resolve
+    ticket_rows = await pool.fetch(
+        f"""
+        SELECT
+            c.jira_key,
+            t.title,
+            t.status::text AS task_status,
+            t.repo,
+            COUNT(*) AS total_cycles,
+            SUM(CASE WHEN c.work_type = 'new_ticket' THEN 1 ELSE 0 END) AS impl_cycles,
+            SUM(CASE WHEN c.work_type = 'pr_review' THEN 1 ELSE 0 END) AS review_cycles,
+            ROUND(SUM(c.cost_usd)::numeric, 2) AS total_cost,
+            ROUND(EXTRACT(EPOCH FROM (MAX(c.timestamp) - MIN(c.timestamp)))/3600.0, 1) AS hours_span
+        FROM cycles c
+        LEFT JOIN tasks t ON t.jira_key = c.jira_key
+        WHERE {date_filter} AND c.jira_key IS NOT NULL AND NOT c.no_work
+        GROUP BY c.jira_key, t.title, t.status, t.repo
+        ORDER BY total_cycles DESC
+        LIMIT 30
+        """,
+        *date_params,
+    )
+
+    # Summary stats
+    summary = await pool.fetchrow(
+        f"""
+        SELECT
+            COUNT(*) AS total_cycles,
+            COUNT(DISTINCT jira_key) FILTER (WHERE jira_key IS NOT NULL AND NOT no_work) AS unique_tickets,
+            ROUND(SUM(cost_usd)::numeric, 2) AS total_cost,
+            ROUND(AVG(cost_usd) FILTER (WHERE NOT no_work)::numeric, 2) AS avg_cost_per_work_cycle,
+            ROUND(AVG(num_turns) FILTER (WHERE NOT no_work)::numeric, 1) AS avg_turns,
+            ROUND(AVG(duration_ms) FILTER (WHERE NOT no_work)::numeric, 0) AS avg_duration_ms,
+            COUNT(*) FILTER (WHERE no_work) AS idle_cycles,
+            COUNT(*) FILTER (WHERE is_error) AS error_cycles,
+            COUNT(*) FILTER (WHERE NOT no_work AND NOT is_error) AS work_cycles,
+            COUNT(DISTINCT repo) FILTER (WHERE repo IS NOT NULL) AS repos_touched
+        FROM cycles
+        WHERE {date_filter}
+        """,
+        *date_params,
+    )
+
+    # Tickets resolved (archived) in period
+    resolved = await pool.fetchval(
+        """
+        SELECT COUNT(*) FROM tasks
+        WHERE status = 'archived'
+        AND last_addressed >= NOW() - make_interval(days => $1)
+        """,
+        date_params[0] if isinstance(date_params[0], int) else 365,
+    )
+
+    # Avg review rounds per ticket
+    avg_reviews = await pool.fetchrow(
+        f"""
+        SELECT
+            ROUND(AVG(review_count)::numeric, 1) AS avg_review_rounds,
+            COUNT(*) FILTER (WHERE review_count = 0) AS zero_review,
+            COUNT(*) FILTER (WHERE review_count = 1) AS one_review,
+            COUNT(*) FILTER (WHERE review_count > 1) AS multi_review
+        FROM (
+            SELECT jira_key, COUNT(*) FILTER (WHERE work_type = 'pr_review') AS review_count
+            FROM cycles
+            WHERE {date_filter} AND jira_key IS NOT NULL AND NOT no_work
+            GROUP BY jira_key
+        ) sub
+        """,
+        *date_params,
+    )
+
+    return JSONResponse({
+        "summary": {
+            "total_cycles": summary["total_cycles"],
+            "work_cycles": summary["work_cycles"],
+            "idle_cycles": summary["idle_cycles"],
+            "error_cycles": summary["error_cycles"],
+            "unique_tickets": summary["unique_tickets"],
+            "total_cost": float(summary["total_cost"] or 0),
+            "avg_cost_per_work_cycle": float(summary["avg_cost_per_work_cycle"] or 0),
+            "avg_turns": float(summary["avg_turns"] or 0),
+            "avg_duration_ms": float(summary["avg_duration_ms"] or 0),
+            "repos_touched": summary["repos_touched"],
+            "tickets_resolved": resolved,
+        },
+        "work_types": [{
+            "category": r["category"],
+            "cycles": r["cycles"],
+            "total_cost": float(r["total_cost"]),
+            "avg_cost": float(r["avg_cost"]),
+            "avg_turns": float(r["avg_turns"]),
+            "avg_duration_ms": float(r["avg_duration_ms"]),
+        } for r in work_type_rows],
+        "repos": [{
+            "repo": r["repo"],
+            "tickets": r["tickets"],
+            "cycles": r["cycles"],
+            "total_cost": float(r["total_cost"]),
+            "avg_turns": float(r["avg_turns"]),
+        } for r in repo_rows],
+        "tickets": [{
+            "jira_key": r["jira_key"],
+            "title": r["title"],
+            "status": r["task_status"],
+            "repo": r["repo"],
+            "total_cycles": r["total_cycles"],
+            "impl_cycles": r["impl_cycles"],
+            "review_cycles": r["review_cycles"],
+            "total_cost": float(r["total_cost"]),
+            "hours_span": float(r["hours_span"] or 0),
+        } for r in ticket_rows],
+        "feedback": {
+            "avg_review_rounds": float(avg_reviews["avg_review_rounds"] or 0),
+            "zero_review": avg_reviews["zero_review"],
+            "one_review": avg_reviews["one_review"],
+            "multi_review": avg_reviews["multi_review"],
+        },
+    })
 
 
 async def api_tags(request: Request) -> JSONResponse:

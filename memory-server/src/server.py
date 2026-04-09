@@ -71,7 +71,7 @@ async def asset_files(request: Request) -> FileResponse:
 
 
 # REST API for the dashboard
-from .api import api_tasks, api_task_delete, api_task_unarchive, api_memories, api_memory_get, api_memory_search, api_memory_embeddings, api_memory_delete, api_tags, api_stats, api_bot_status, api_costs
+from .api import api_tasks, api_task_delete, api_task_unarchive, api_memories, api_memory_get, api_memory_search, api_memory_embeddings, api_memory_delete, api_tags, api_stats, api_bot_status, api_costs, api_analytics
 
 mcp.custom_route("/api/tasks", methods=["GET"])(api_tasks)
 mcp.custom_route("/api/tasks/{jira_key:path}", methods=["DELETE"])(api_task_delete)
@@ -85,6 +85,7 @@ mcp.custom_route("/api/bot-status", methods=["GET", "POST"])(api_bot_status)
 mcp.custom_route("/api/costs", methods=["GET", "POST"])(api_costs)
 mcp.custom_route("/api/tags", methods=["GET"])(api_tags)
 mcp.custom_route("/api/stats", methods=["GET"])(api_stats)
+mcp.custom_route("/api/analytics", methods=["GET"])(api_analytics)
 
 
 # WebSocket for live updates

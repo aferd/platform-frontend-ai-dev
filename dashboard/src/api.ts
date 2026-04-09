@@ -58,6 +58,18 @@ export async function fetchEmbeddings() {
   return (await fetch('/api/memories/embeddings')).json();
 }
 
-export async function fetchCosts(days = 30, limit = 200) {
-  return (await fetch(`/api/costs?days=${days}&limit=${limit}`)).json();
+export async function fetchCosts(days = 30, limit = 200, dateFrom?: string, dateTo?: string) {
+  const qs = new URLSearchParams({ limit: String(limit) });
+  if (dateFrom) qs.set('from', dateFrom);
+  if (dateTo) qs.set('to', dateTo);
+  if (!dateFrom && !dateTo) qs.set('days', String(days));
+  return (await fetch(`/api/costs?${qs}`)).json();
+}
+
+export async function fetchAnalytics(days = 30, dateFrom?: string, dateTo?: string) {
+  const qs = new URLSearchParams();
+  if (dateFrom) qs.set('from', dateFrom);
+  if (dateTo) qs.set('to', dateTo);
+  if (!dateFrom && !dateTo) qs.set('days', String(days));
+  return (await fetch(`/api/analytics?${qs}`)).json();
 }

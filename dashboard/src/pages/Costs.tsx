@@ -1,16 +1,21 @@
-import { useEffect, useState, useCallback, useRef } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   AreaChart,
   Area,
+  BarChart,
+  Bar,
   XAxis,
   YAxis,
   Tooltip,
   ResponsiveContainer,
   Legend,
   CartesianGrid,
+  Cell,
+  PieChart,
+  Pie,
 } from 'recharts';
-import type { CycleEntry, DailyAggregate } from '../types';
-import { fetchCosts } from '../api';
+import type { CycleEntry, DailyAggregate, AnalyticsData } from '../types';
+import { fetchCosts, fetchAnalytics } from '../api';
 import { formatDuration, formatTokens, JIRA_BASE } from '../utils';
 import { useWS } from '../hooks/useWebSocket';
 
@@ -35,9 +40,11 @@ const WORK_TYPE_COLORS: Record<string, string> = {
   pr_review: '#58a6ff',
   ci_fix: '#f85149',
   investigation: '#d29922',
+  cve: '#f0883e',
   memory_housekeeping: '#bc8cff',
   idle: '#484f58',
   error: '#f85149',
+  other: '#8b949e',
 };
 
 const WORK_TYPE_LABELS: Record<string, string> = {
@@ -45,10 +52,16 @@ const WORK_TYPE_LABELS: Record<string, string> = {
   pr_review: 'PR Review',
   ci_fix: 'CI Fix',
   investigation: 'Investigation',
+  cve: 'CVE',
   memory_housekeeping: 'Housekeeping',
   idle: 'Idle',
   error: 'Error',
+  other: 'Other',
 };
+
+const REPO_COLORS = ['#58a6ff', '#3fb950', '#d29922', '#f0883e', '#bc8cff', '#f85149', '#79c0ff', '#56d364', '#e3b341', '#db6d28', '#d2a8ff', '#ff7b72'];
+
+type DateMode = 'preset' | 'range';
 
 function CycleChartTooltip({ active, payload }: any) {
   if (!active || !payload?.length) return null;
@@ -78,6 +91,18 @@ function DailyChartTooltip({ active, payload, label }: any) {
           {p.name}: {p.dataKey === 'cost' ? '$' + Number(p.value).toFixed(2) : formatTokens(p.value)}
         </div>
       ))}
+    </div>
+  );
+}
+
+function PieTooltip({ active, payload }: any) {
+  if (!active || !payload?.length) return null;
+  const d = payload[0];
+  return (
+    <div className="chart-tooltip">
+      <div style={{ fontWeight: 600, color: d.payload.fill }}>{d.name}</div>
+      <div>{d.value} cycles · ${d.payload.total_cost?.toFixed(2)}</div>
+      <div style={{ color: 'var(--text-dim)', fontSize: 11 }}>avg ${d.payload.avg_cost?.toFixed(2)}/cycle · {d.payload.avg_turns} turns</div>
     </div>
   );
 }
@@ -137,40 +162,51 @@ function CycleRow({ c }: { c: CycleEntry }) {
   );
 }
 
+function SummaryCard({ value, label, sub, color }: { value: string; label: string; sub?: string; color?: string }) {
+  return (
+    <div className="summary-card" style={color ? { borderColor: color } : undefined}>
+      <div className="summary-value" style={color ? { color } : undefined}>{value}</div>
+      <div className="summary-label">{label}</div>
+      {sub && <span className="summary-sub">{sub}</span>}
+    </div>
+  );
+}
+
 export default function Costs() {
+  const [dateMode, setDateMode] = useState<DateMode>('preset');
   const [days, setDays] = useState(30);
+  const [dateFrom, setDateFrom] = useState('');
+  const [dateTo, setDateTo] = useState('');
   const [data, setData] = useState<CostsData | null>(null);
+  const [analytics, setAnalytics] = useState<AnalyticsData | null>(null);
   const [metric, setMetric] = useState<CycleMetric>('cost');
 
   const { onEvent } = useWS();
 
   const load = useCallback(async () => {
-    const res = await fetchCosts(days, 500);
-    setData({
-      cycles: res.items || [],
-      daily: res.daily || [],
-    });
-  }, [days]);
+    const from = dateMode === 'range' ? dateFrom || undefined : undefined;
+    const to = dateMode === 'range' ? dateTo || undefined : undefined;
+    const [costsRes, analyticsRes] = await Promise.all([
+      fetchCosts(days, 500, from, to),
+      fetchAnalytics(days, from, to),
+    ]);
+    setData({ cycles: costsRes.items || [], daily: costsRes.daily || [] });
+    setAnalytics(analyticsRes);
+  }, [days, dateMode, dateFrom, dateTo]);
 
   useEffect(() => { load(); }, [load]);
 
-  // Live updates: reload when a new cycle is recorded
   useEffect(() => {
     return onEvent((event) => {
-      if (event.type === 'cycle_recorded') {
-        load();
-      }
+      if (event.type === 'cycle_recorded') load();
     });
   }, [onEvent, load]);
 
-  if (!data) return <div className="empty-state">Loading...</div>;
+  if (!data || !analytics) return <div className="empty-state">Loading...</div>;
 
   const { cycles, daily } = data;
+  const { summary, work_types, repos, tickets, feedback } = analytics;
 
-  const totalCost = cycles.reduce((s, c) => s + c.cost_usd, 0);
-  const idleCycles = cycles.filter(c => c.no_work).length;
-  const errorCycles = cycles.filter(c => c.is_error).length;
-  const workCycles = cycles.length - idleCycles;
   const totalDuration = cycles.reduce((s, c) => s + c.duration_ms, 0);
   const totalOutput = cycles.reduce((s, c) => s + c.output_tokens, 0);
   const totalCacheRead = cycles.reduce((s, c) => s + c.cache_read_tokens, 0);
@@ -202,13 +238,186 @@ export default function Costs() {
   const dailyCostData = sorted.map(d => ({ day: d.day.slice(5), cost: Number(d.total_cost.toFixed(2)) }));
   const dailyTokenData = sorted.map(d => ({ day: d.day.slice(5), output: d.output_tokens, cache_read: d.cache_read }));
 
+  // Work type pie data (exclude idle)
+  const pieData = work_types
+    .filter(w => w.category !== 'idle' && w.category !== 'error')
+    .map(w => ({
+      name: WORK_TYPE_LABELS[w.category] || w.category,
+      value: w.cycles,
+      total_cost: w.total_cost,
+      avg_cost: w.avg_cost,
+      avg_turns: w.avg_turns,
+      fill: WORK_TYPE_COLORS[w.category] || '#8b949e',
+    }));
+
+  // Repo bar data
+  const repoBarData = repos.slice(0, 12).map(r => ({
+    repo: r.repo.length > 20 ? r.repo.slice(0, 18) + '...' : r.repo,
+    fullRepo: r.repo,
+    tickets: r.tickets,
+    cycles: r.cycles,
+    total_cost: r.total_cost,
+  }));
+
+  // Ticket lifecycle stacked bar
+  const ticketBarData = tickets.slice(0, 15).map(t => ({
+    key: t.jira_key,
+    title: t.title ? (t.title.length > 40 ? t.title.slice(0, 38) + '...' : t.title) : t.jira_key,
+    impl: t.impl_cycles,
+    review: t.review_cycles,
+    total_cost: t.total_cost,
+    hours: t.hours_span,
+  }));
+
+  const todayStr = new Date().toISOString().slice(0, 10);
+
   return (
     <div className="costs-page">
+      {/* Date controls */}
       <div className="controls">
-        <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
-          {DAYS_OPTIONS.map(d => <option key={d} value={d}>{d} days</option>)}
-        </select>
+        <div className="date-mode-toggle">
+          <button className={`metric-tab ${dateMode === 'preset' ? 'active' : ''}`} onClick={() => setDateMode('preset')}>Preset</button>
+          <button className={`metric-tab ${dateMode === 'range' ? 'active' : ''}`} onClick={() => setDateMode('range')}>Date Range</button>
+        </div>
+        {dateMode === 'preset' ? (
+          <select value={days} onChange={(e) => setDays(Number(e.target.value))}>
+            {DAYS_OPTIONS.map(d => <option key={d} value={d}>{d} days</option>)}
+          </select>
+        ) : (
+          <div className="date-range-picker">
+            <label>
+              <span className="date-label">From</span>
+              <input type="date" value={dateFrom} max={dateTo || todayStr} onChange={e => setDateFrom(e.target.value)} />
+            </label>
+            <label>
+              <span className="date-label">To</span>
+              <input type="date" value={dateTo} min={dateFrom} max={todayStr} onChange={e => setDateTo(e.target.value)} />
+            </label>
+          </div>
+        )}
       </div>
+
+      {/* Summary cards */}
+      <div className="summary-grid">
+        <SummaryCard value={String(summary.tickets_resolved)} label="Tickets Resolved" sub={`${summary.unique_tickets} unique worked on`} color="var(--green)" />
+        <SummaryCard value={`$${summary.total_cost.toFixed(2)}`} label="Total Cost" sub={`$${summary.avg_cost_per_work_cycle.toFixed(2)} avg/work cycle`} color="var(--green)" />
+        <SummaryCard value={String(summary.work_cycles)} label="Work Cycles" sub={`${summary.idle_cycles} idle · ${summary.error_cycles} error`} />
+        <SummaryCard value={formatDuration(summary.avg_duration_ms)} label="Avg Cycle Duration" sub={`${summary.avg_turns} avg turns`} />
+        <SummaryCard value={`${feedback.avg_review_rounds}`} label="Avg Review Rounds" sub={`${feedback.zero_review} first-pass · ${feedback.multi_review} multi-round`} color="var(--accent)" />
+        <SummaryCard value={String(summary.repos_touched)} label="Repos Touched" />
+      </div>
+
+      {/* Analytics charts row */}
+      <div className="analytics-charts">
+        {/* Work type pie */}
+        {pieData.length > 0 && (
+          <div className="chart-card">
+            <h3>Work Breakdown</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <PieChart>
+                <Pie
+                  data={pieData}
+                  dataKey="value"
+                  nameKey="name"
+                  cx="50%"
+                  cy="50%"
+                  outerRadius={80}
+                  innerRadius={40}
+                  paddingAngle={2}
+                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  labelLine={false}
+                >
+                  {pieData.map((d, i) => <Cell key={i} fill={d.fill} />)}
+                </Pie>
+                <Tooltip content={<PieTooltip />} />
+              </PieChart>
+            </ResponsiveContainer>
+            <div className="work-type-legend">
+              {pieData.map((d) => (
+                <span key={d.name} className="cycle-legend-item">
+                  <span className="cycle-legend-dot" style={{ background: d.fill }} />
+                  {d.name}: {d.value} ({`$${d.total_cost.toFixed(2)}`})
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Repo breakdown bar */}
+        {repoBarData.length > 0 && (
+          <div className="chart-card">
+            <h3>Repos</h3>
+            <ResponsiveContainer width="100%" height={220}>
+              <BarChart data={repoBarData} layout="vertical" margin={{ left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(48,54,61,0.5)" horizontal={false} />
+                <XAxis type="number" stroke="var(--text-dim)" fontSize={11} />
+                <YAxis type="category" dataKey="repo" stroke="var(--text-dim)" fontSize={11} width={140} tick={{ fill: 'var(--text-dim)' }} />
+                <Tooltip content={({ active, payload }) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0]?.payload;
+                  return (
+                    <div className="chart-tooltip">
+                      <div style={{ fontWeight: 600 }}>{d.fullRepo}</div>
+                      <div>{d.tickets} tickets · {d.cycles} cycles</div>
+                      <div style={{ color: 'var(--green)' }}>${d.total_cost.toFixed(2)}</div>
+                    </div>
+                  );
+                }} />
+                <Bar dataKey="cycles" name="Cycles" radius={[0, 4, 4, 0]}>
+                  {repoBarData.map((_, i) => <Cell key={i} fill={REPO_COLORS[i % REPO_COLORS.length]} />)}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )}
+      </div>
+
+      {/* Ticket lifecycle */}
+      {ticketBarData.length > 0 && (
+        <div className="chart-card">
+          <h3>Ticket Lifecycle — Cycles per Ticket</h3>
+          <div style={{ fontSize: 12, color: 'var(--text-dim)', marginBottom: 8 }}>
+            Implementation vs review cycles. Hover for cost & time details.
+          </div>
+          <ResponsiveContainer width="100%" height={Math.max(200, ticketBarData.length * 28 + 40)}>
+            <BarChart data={ticketBarData} layout="vertical" margin={{ left: 10 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="rgba(48,54,61,0.5)" horizontal={false} />
+              <XAxis type="number" stroke="var(--text-dim)" fontSize={11} allowDecimals={false} />
+              <YAxis type="category" dataKey="key" stroke="var(--text-dim)" fontSize={11} width={130} tick={{ fill: 'var(--accent)' }} />
+              <Tooltip
+                cursor={{ fill: 'rgba(255,255,255,0.03)' }}
+                content={({ active, payload, label }) => {
+                  if (!active || !payload?.length) return null;
+                  const d = payload[0]?.payload;
+                  // Find which segment is hovered (first payload entry with non-zero value matching the hover)
+                  const hoveredKey = payload.find(p => p.value && Number(p.value) > 0)?.dataKey;
+                  return (
+                    <div className="chart-tooltip">
+                      <div style={{ fontWeight: 600 }}>{d.key}</div>
+                      <div style={{ fontSize: 11, color: 'var(--text-dim)', maxWidth: 250 }}>{d.title}</div>
+                      <div style={{ marginTop: 4 }}>
+                        <span style={{ color: WORK_TYPE_COLORS.new_ticket, fontWeight: hoveredKey === 'impl' ? 700 : 400 }}>
+                          {d.impl} impl
+                        </span>
+                        {' + '}
+                        <span style={{ color: WORK_TYPE_COLORS.pr_review, fontWeight: hoveredKey === 'review' ? 700 : 400 }}>
+                          {d.review} review
+                        </span>
+                        {' = '}{d.impl + d.review} total
+                      </div>
+                      <div style={{ color: 'var(--green)' }}>${d.total_cost.toFixed(2)}</div>
+                      {d.hours > 0 && <div style={{ color: 'var(--text-dim)' }}>{d.hours.toFixed(1)}h elapsed</div>}
+                    </div>
+                  );
+                }}
+              />
+              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <Bar dataKey="impl" name="Implementation" stackId="a" fill={WORK_TYPE_COLORS.new_ticket} radius={[0, 0, 0, 0]} />
+              <Bar dataKey="review" name="Review" stackId="a" fill={WORK_TYPE_COLORS.pr_review} radius={[0, 4, 4, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        </div>
+      )}
 
       {/* Per-Cycle Chart */}
       <div className="chart-card">
@@ -217,14 +426,14 @@ export default function Costs() {
           <div className="cycle-summary-inline">
             <span>{cycles.length} total</span>
             <span className="dot-sep" />
-            <span style={{ color: 'var(--green)' }}>{workCycles} work</span>
+            <span style={{ color: 'var(--green)' }}>{summary.work_cycles} work</span>
             <span className="dot-sep" />
-            <span style={{ color: 'var(--text-dim)' }}>{idleCycles} idle</span>
-            {errorCycles > 0 && <><span className="dot-sep" /><span style={{ color: 'var(--red)' }}>{errorCycles} error</span></>}
+            <span style={{ color: 'var(--text-dim)' }}>{summary.idle_cycles} idle</span>
+            {summary.error_cycles > 0 && <><span className="dot-sep" /><span style={{ color: 'var(--red)' }}>{summary.error_cycles} error</span></>}
             <span className="dot-sep" />
-            <span style={{ color: 'var(--green)' }}>${totalCost.toFixed(2)} total</span>
+            <span style={{ color: 'var(--green)' }}>${summary.total_cost.toFixed(2)} total</span>
             <span className="dot-sep" />
-            <span>${workCycles > 0 ? (totalCost / workCycles).toFixed(2) : '0.00'} avg/work</span>
+            <span>${summary.work_cycles > 0 ? summary.avg_cost_per_work_cycle.toFixed(2) : '0.00'} avg/work</span>
           </div>
         </div>
 

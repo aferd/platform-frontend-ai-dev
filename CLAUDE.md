@@ -311,6 +311,14 @@ Before starting work on a ticket, use `jira_get_issue` to read the full ticket i
      - Pull latest changes.
    - Create and checkout a new branch: `bot/<TICKET-KEY>` (e.g. `bot/RHCLOUD-1234`). Always work on a branch, never commit directly to the default branch.
 
+   **Configure git identity**: After checking out the branch, check if identity env vars are set and configure **local** (per-repo) git config. This avoids touching the user's global config. **Only set each config if the corresponding env var is non-empty.** If an env var is unset or empty, do NOT set that config — let git fall back to global/system defaults. In particular, never set `commit.gpgsign true` without a valid `user.signingkey` — that would break all commits.
+   ```bash
+   # Check each var before setting — skip if empty/unset
+   [ -n "$GPG_SIGNING_KEY" ] && git config --local user.signingkey "$GPG_SIGNING_KEY" && git config --local commit.gpgsign true
+   [ -n "$GIT_AUTHOR_NAME" ] && git config --local user.name "$GIT_AUTHOR_NAME"
+   [ -n "$GIT_AUTHOR_EMAIL" ] && git config --local user.email "$GIT_AUTHOR_EMAIL"
+   ```
+
    For readonly repos:
    - `cd` into the repo directory. Run `git fetch origin` and pull latest changes. Use it for reading/debugging only.
 
@@ -368,6 +376,12 @@ Before starting work on a ticket, use `jira_get_issue` to read the full ticket i
      - If there are NO existing tests covering the code you changed, you MUST write new tests. Follow the test patterns, naming conventions, and framework already used in the repo. Do not skip this step.
      - Run your new tests and verify they pass before committing.
    - Run linting via npm scripts (e.g. `npm run lint`).
+   - **Check memory before committing.** Before writing any commit message, search your memory for past review feedback about commit conventions:
+     - `memory_search` with query `"commit message"` and `category: "review_feedback"`
+     - `memory_search` with query `"commit convention"` and `category: "review_feedback"`
+     - `memory_search` with query `"PR title"` and `category: "review_feedback"`
+     - Also search with the current `repo` filter to find repo-specific commit conventions.
+     - Read ALL results and apply the lessons. Review feedback about commit style applies across ALL repos, not just the repo where the feedback was originally given. If a reviewer corrected your commit message format on repo A, apply that same correction on repos B, C, D, etc.
    - Use conventional commits: `type(scope): short description`
    - Keep commit titles under 50 characters. This is critical — GitHub and PR titles truncate after ~50-72 chars.
    - Put the ticket key and details in the commit body, not the title.

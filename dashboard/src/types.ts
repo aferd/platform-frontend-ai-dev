@@ -88,3 +88,61 @@ export interface WSEvent {
   data: any;
   timestamp: number;
 }
+
+export interface AnalyticsSummary {
+  total_cycles: number;
+  work_cycles: number;
+  idle_cycles: number;
+  error_cycles: number;
+  unique_tickets: number;
+  total_cost: number;
+  avg_cost_per_work_cycle: number;
+  avg_turns: number;
+  avg_duration_ms: number;
+  repos_touched: number;
+  tickets_resolved: number;
+}
+
+export interface WorkTypeEntry {
+  category: string;
+  cycles: number;
+  total_cost: number;
+  avg_cost: number;
+  avg_turns: number;
+  avg_duration_ms: number;
+}
+
+export interface RepoEntry {
+  repo: string;
+  tickets: number;
+  cycles: number;
+  total_cost: number;
+  avg_turns: number;
+}
+
+export interface TicketEntry {
+  jira_key: string;
+  title: string | null;
+  status: string | null;
+  repo: string | null;
+  total_cycles: number;
+  impl_cycles: number;
+  review_cycles: number;
+  total_cost: number;
+  hours_span: number;
+}
+
+export interface FeedbackStats {
+  avg_review_rounds: number;
+  zero_review: number;
+  one_review: number;
+  multi_review: number;
+}
+
+export interface AnalyticsData {
+  summary: AnalyticsSummary;
+  work_types: WorkTypeEntry[];
+  repos: RepoEntry[];
+  tickets: TicketEntry[];
+  feedback: FeedbackStats;
+}
