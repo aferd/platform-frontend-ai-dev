@@ -79,6 +79,23 @@ Active: `in_progress`, `pr_open`, `pr_changes`. Terminal: `done`, `archived`, `p
 Categories: `learning`, `review_feedback`, `codebase_pattern`.
 Tags: `bug-fix`, `cve`, `css`, `patternfly`, `dependency-upgrade`, `ci`, `ui-change`, `testing`, etc.
 
+### Slack Notifications
+
+| Tool | Purpose |
+|------|---------|
+| `slack_notify` | Post to team Slack. Params: `jira_key, event_type, message`. 48h cooldown per key+event. |
+
+**Event types**: `pr_created`, `release_pending`, `needs_help`, `infra_error`, `review_reminder`.
+
+**When to notify**:
+- `pr_created` — after opening PR. Include ticket key, PR link, 1-line summary.
+- `release_pending` — after PR merged + ticket transitioned. Include ticket key + PR link.
+- `needs_help` — blocked/ambiguous/needs human decision. Include ticket key + what's needed.
+- `infra_error` — infrastructure issue preventing work (sandbox broken, auth failed, etc.).
+- `review_reminder` — PR awaiting human review. Send on first PR triage if no notification sent yet. Bot reviews don't count. Include ticket key, PR link, repo.
+
+**Rules**: Cooldown is automatic (48h per jira_key+event_type). Don't check manually. Message = normal human language (NOT caveman). Keep concise: 1-2 sentences + links. Don't notify for routine operations (task updates, memory stores, etc.).
+
 ## Workflow Loop
 
 ONE item per cycle. Priority order:
@@ -121,7 +138,9 @@ For each `pr_open`/`pr_changes` task (check `metadata.prs` for multi-repo, else 
    - GH: `gh pr view <n> --json state,mergeable,statusCheckRollup,reviewDecision,reviews,url`
    - GL: `glab mr view <n>`
 
-4. Handle in order:
+4. **Review reminder**: If no Slack notification sent yet for this task → ALWAYS send `slack_notify` `review_reminder` (first notification, regardless of PR age). After first notification, cooldown handles repeat reminders automatically every 48h. **Bot reviews don't count** — only human reviews matter. PR with only bot reviews = still needs human review → send reminder.
+
+5. Handle in order:
 
 **Failing CI**: `gh pr checks <n>` / `glab ci view`. Checkout branch → fix → commit → push. Comment on Jira. `task_update` `last_addressed`.
 
@@ -133,7 +152,7 @@ For each `pr_open`/`pr_changes` task (check `metadata.prs` for multi-repo, else 
   2. General: `gh api repos/{owner}/{repo}/issues/{n}/comments`
 - GL: `glab mr view <n> --comments`
 - **Read FULL conversation** — don't rely on `last_addressed` as cutoff. For each comment, check if addressed: bot replied? subsequent commit fixed it? thread resolved? approval vs actionable request? `last_addressed` = soft hint only.
-- Skip bot's own comments (GH: check author). Address outstanding feedback → commit → push.
+- Read ALL comments including bot's own (GH: identify by `user.login`). Bot's own comments = context for what's already addressed, NOT new feedback. Human comments w/o bot reply or subsequent fix = outstanding. Address outstanding feedback → commit → push.
 - Screenshots requested → follow persona's "Verification for UI changes". Dev server + chrome-devtools MCP. **Never commit screenshots.** Upload as GH Release assets → reference URLs in PR comment.
 - Reply to reviews via `gh`/`glab`. `task_update` `last_addressed`. `memory_store` notable feedback as `review_feedback`. Jira comment.
 
@@ -151,8 +170,9 @@ For each `pr_open`/`pr_changes` task (check `metadata.prs` for multi-repo, else 
 - **Update linked issues**: duplicates → comment fix merged. Related → link PR. Blocked → blocker resolved.
 - **Delete bot branch**: GH: `gh api repos/{owner}/{repo}/git/refs/heads/bot/{KEY} -X DELETE`. GL: `glab api projects/:id/repository/branches/bot%2F{KEY} -X DELETE`. Local: `git branch -D bot/{KEY}`.
 - **Store learnings**: `memory_store` as `learning` + `codebase_pattern`. Set `repo` + `tags`.
+- `slack_notify` `release_pending`: "{KEY} merged → Release Pending. PR: {url}"
 
-**Unresolvable**: Jira comment explaining blocker. `task_update` `paused_reason`. Task stays tracked.
+**Unresolvable**: Jira comment explaining blocker. `task_update` `paused_reason`. `slack_notify` `needs_help`: "{KEY} blocked — {reason}". Task stays tracked.
 
 Handle one PR issue → stop. Next cycle picks up next.
 
@@ -182,6 +202,8 @@ project = RHCLOUD AND labels = PRIMARY_LABEL AND assignee is EMPTY AND status NO
 ```
 
 Find first ticket w/ `repo:` label matching `project-repos.json` key. Multiple `repo:` labels OK if all match. At capacity → only `needs-investigation`. No match → memory housekeeping → "NO_WORK_FOUND" → stop.
+
+**During candidate scanning**: If a ticket is a duplicate or already addressed by another ticket/PR → do NOT silently skip. MUST: `jira_add_comment` explaining which ticket/PR already addresses it → `jira_transition_issue` "Release Pending" → `jira_create_issue_link` (duplicates). Then move to next candidate. This keeps Jira clean and avoids re-scanning the same tickets.
 
 #### Memory Housekeeping (idle)
 
@@ -303,6 +325,8 @@ Before starting work, `jira_get_issue` → check issue links:
     ```
 
 12. **Report on Jira**: `jira_transition_issue` → "Code Review". `jira_add_comment`: what done, PR links, concerns. Update linked issues w/ PR links (one comment per, only on PR open or completion).
+
+13. **Notify Slack**: `slack_notify` `pr_created`: "{KEY}: {title} — PR: {url}". Also notify `needs_help` if investigation or blocked.
 
 ## Progress Tracking
 
