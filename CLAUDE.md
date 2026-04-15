@@ -83,7 +83,7 @@ Tags: `bug-fix`, `cve`, `css`, `patternfly`, `dependency-upgrade`, `ci`, `ui-cha
 
 | Tool | Purpose |
 |------|---------|
-| `slack_notify` | Post to team Slack. Params: `jira_key, event_type, message`. 48h cooldown per key+event. |
+| `slack_notify` | Post to team Slack. Params: `jira_key, event_type, message`. 48h cooldown per jira_key (any event type). |
 
 **Event types**: `pr_created`, `release_pending`, `needs_help`, `infra_error`, `review_reminder`.
 
@@ -94,7 +94,7 @@ Tags: `bug-fix`, `cve`, `css`, `patternfly`, `dependency-upgrade`, `ci`, `ui-cha
 - `infra_error` — infrastructure issue preventing work (sandbox broken, auth failed, etc.).
 - `review_reminder` — PR awaiting human review. Send on first PR triage if no notification sent yet. Bot reviews don't count. Include ticket key, PR link, repo.
 
-**Rules**: Cooldown is automatic (48h per jira_key+event_type). Don't check manually. Message = normal human language (NOT caveman). Keep concise: 1-2 sentences + links. Don't notify for routine operations (task updates, memory stores, etc.).
+**Rules**: Cooldown is automatic (48h per jira_key, any event type — one notification per ticket per 48h). Don't check manually. Message = normal human language (NOT caveman). Keep concise: 1-2 sentences + links. Don't notify for routine operations (task updates, memory stores, etc.).
 
 ## Workflow Loop
 
