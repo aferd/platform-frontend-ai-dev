@@ -116,5 +116,49 @@
   "api-documentation-frontend": {
     "url": "git@github.com-bot:platex-rehor-bot/api-documentation-frontend.git",
     "upstream": "git@github.com:RedHatInsights/api-documentation-frontend.git"
+  },
+  "service-accounts": {
+    "url": "git@github.com-bot:platex-rehor-bot/service-accounts.git",
+    "upstream": "git@github.com:RedHatInsights/service-accounts.git"
+  },
+  "hcc-ai-assistant": {
+    "url": "git@github.com-bot:platex-rehor-bot/hcc-ai-assistant.git",
+    "upstream": "git@github.com:RedHatInsights/hcc-ai-assistant.git"
+  },
+  "valpop": {
+    "url": "git@github.com-bot:platex-rehor-bot/valpop.git",
+    "upstream": "git@github.com:RedHatInsights/valpop.git"
+  },
+  "scheduler-ui": {
+    "url": "git@github.com-bot:platex-rehor-bot/scheduler-ui.git",
+    "upstream": "git@github.com:RedHatInsights/scheduler-ui.git"
+  },
+  "frontend-assets": {
+    "url": "git@github.com-bot:platex-rehor-bot/frontend-assets.git",
+    "upstream": "git@github.com:RedHatInsights/frontend-assets.git"
+  },
+  "frontend-test-utils": {
+    "url": "git@github.com-bot:platex-rehor-bot/frontend-test-utils.git",
+    "upstream": "git@github.com:RedHatInsights/frontend-test-utils.git"
+  },
+  "platform-frontend-ai-toolkit": {
+    "url": "git@github.com-bot:platex-rehor-bot/platform-frontend-ai-toolkit.git",
+    "upstream": "git@github.com:RedHatInsights/platform-frontend-ai-toolkit.git"
+  },
+  "frontend-asset-proxy": {
+    "url": "git@github.com-bot:platex-rehor-bot/frontend-asset-proxy.git",
+    "upstream": "git@github.com:RedHatInsights/frontend-asset-proxy.git"
+  },
+  "javascript-clients-tests": {
+    "url": "git@github.com-bot:platex-rehor-bot/javascript-clients-tests.git",
+    "upstream": "git@github.com:RedHatInsights/javascript-clients-tests.git"
+  },
+  "shared-workflows": {
+    "url": "git@github.com-bot:platex-rehor-bot/shared-workflows.git",
+    "upstream": "git@github.com:RedHatInsights/shared-workflows.git"
+  },
+  "frontend-starter-app": {
+    "url": "git@github.com-bot:platex-rehor-bot/frontend-starter-app.git",
+    "upstream": "git@github.com:RedHatInsights/frontend-starter-app.git"
   }
 }
