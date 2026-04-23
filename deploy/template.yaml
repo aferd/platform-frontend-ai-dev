@@ -282,7 +282,7 @@ objects:
                 name: devbot-secrets
                 key: gcp-vertex-claude-sa
           - name: JIRA_URL
-            value: https://issues.redhat.com
+            value: https://redhat.atlassian.net
           - name: JIRA_USERNAME
             valueFrom:
               secretKeyRef:
