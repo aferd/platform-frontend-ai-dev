@@ -138,14 +138,13 @@ wait_for() {
 }
 
 # Proxy must be up before Chromium (which routes through it)
-if [ "${PROXY_HOST:-proxy}" != "proxy" ]; then
-    wait_for "proxy" "http://${PROXY_HOST}:3128" 60
+if [ -n "${BOT_PROXY_HEALTH_URL:-}" ]; then
+    wait_for "proxy" "$BOT_PROXY_HEALTH_URL" "${BOT_PROXY_HEALTH_TIMEOUT:-60}"
 fi
 
 # Memory server must be up before the bot connects via MCP
-if [ -n "${BOT_MEMORY_URL:-}" ] && [ "${BOT_MEMORY_URL}" != "http://localhost:8080/sse" ]; then
-    MEMORY_HEALTH_URL="${BOT_MEMORY_URL%/sse}/health"
-    wait_for "memory-server" "$MEMORY_HEALTH_URL" 120
+if [ -n "${BOT_MEMORY_HEALTH_URL:-}" ]; then
+    wait_for "memory-server" "$BOT_MEMORY_HEALTH_URL" "${BOT_MEMORY_HEALTH_TIMEOUT:-120}"
 fi
 
 # Start headless Chromium in background (Playwright-installed binary)
