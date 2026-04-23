@@ -5,8 +5,8 @@
       "args": ["--browserUrl", "http://127.0.0.1:9222", "--acceptInsecureCerts"]
     },
     "bot-memory": {
-      "type": "sse",
-      "url": "http://localhost:8080/sse"
+      "type": "http",
+      "url": "http://localhost:8080/mcp"
     }
   }
 }

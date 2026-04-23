@@ -107,8 +107,8 @@ async def ws_events(websocket: WebSocket):
 
 
 if __name__ == "__main__":
-    # Build the MCP SSE app (handles /sse and /messages/ endpoints + custom routes)
-    mcp_app = mcp.http_app(transport="sse")
+    # Build the MCP app (handles /mcp endpoint + custom routes)
+    mcp_app = mcp.http_app(transport="streamable-http")
 
     # Wrap in an outer Starlette app so we can add WebSocket + lifespan
     app = Starlette(

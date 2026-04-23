@@ -81,7 +81,7 @@ if [ -n "${GOOGLE_SA_KEY_B64:-}" ]; then
 fi
 
 # Point MCP config to the memory server
-sed -i "s|http://localhost:8080/sse|${BOT_MEMORY_URL}|" .mcp.json
+sed -i "s|http://localhost:8080/mcp|${BOT_MEMORY_URL}|" .mcp.json
 
 # Configure gh CLI auth
 mkdir -p ~/.config/gh

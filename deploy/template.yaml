@@ -246,7 +246,7 @@ objects:
           - name: BOT_LABEL
             value: ${BOT_LABEL}
           - name: BOT_MEMORY_URL
-            value: http://devbot-memory-server:8080/sse
+            value: http://devbot-memory-server:8080/mcp
           - name: BOT_MEMORY_HEALTH_URL
             value: http://devbot-memory-server:8080/health
           - name: BOT_MEMORY_HEALTH_TIMEOUT
