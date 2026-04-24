@@ -13,6 +13,7 @@ class Config:
     max_turns: int
     interval: int
     idle_interval: int
+    cycle_timeout: int
     board_key: str
 
 
@@ -25,6 +26,7 @@ def load_config(script_dir: Path) -> Config:
         max_turns=raw["claude"]["maxTurns"],
         interval=raw["polling"]["intervalSeconds"],
         idle_interval=raw["polling"].get("idleIntervalSeconds", 3600),
+        cycle_timeout=raw["claude"].get("cycleTimeoutSeconds", 1800),
         board_key=raw["jira"]["boardKey"],
     )
 

@@ -247,6 +247,14 @@ objects:
             value: ${BOT_LABEL}
           - name: BOT_MEMORY_URL
             value: http://devbot-memory-server:8080/sse
+          - name: BOT_MEMORY_HEALTH_URL
+            value: http://devbot-memory-server:8080/health
+          - name: BOT_MEMORY_HEALTH_TIMEOUT
+            value: "120"
+          - name: BOT_PROXY_HEALTH_URL
+            value: http://devbot-proxy:3128
+          - name: BOT_PROXY_HEALTH_TIMEOUT
+            value: "60"
           - name: GOOGLE_APPLICATION_CREDENTIALS
             value: /home/botuser/sa-key.json
           # Proxy — PROXY_HOST for SSH config, HTTP(S)_PROXY for HTTP clients

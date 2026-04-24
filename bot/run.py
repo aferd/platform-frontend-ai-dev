@@ -199,16 +199,26 @@ def main() -> None:
         while True:
             logger.info("Running agent cycle...")
 
-            result, ctx = asyncio.run(
-                run_cycle(
-                    label=args.label,
-                    config=config,
-                    mcp_servers=mcp_servers,
-                    allowed_tools=ALLOWED_TOOLS,
-                    cwd=str(SCRIPT_DIR),
-                    instance_id=instance_id,
+            try:
+                result, ctx = asyncio.run(
+                    asyncio.wait_for(
+                        run_cycle(
+                            label=args.label,
+                            config=config,
+                            mcp_servers=mcp_servers,
+                            allowed_tools=ALLOWED_TOOLS,
+                            cwd=str(SCRIPT_DIR),
+                            instance_id=instance_id,
+                        ),
+                        timeout=config.cycle_timeout,
+                    )
                 )
-            )
+            except asyncio.TimeoutError:
+                logger.error(
+                    "Cycle timed out after %ds — skipping to next cycle",
+                    config.cycle_timeout,
+                )
+                result, ctx = None, None
 
             if result is not None:
                 no_work = record_cost(

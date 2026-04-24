@@ -121,6 +121,32 @@ gh auth status 2>&1 | head -3 || { echo "WARNING: gh auth failed"; }
 echo "Verifying GitLab auth..."
 glab auth status --hostname gitlab.cee.redhat.com 2>&1 | head -3 || { echo "WARNING: glab auth failed"; }
 
+# --- Wait for dependent services (OpenShift deploys all pods concurrently) ---
+wait_for() {
+    local name="$1" url="$2" timeout="${3:-120}"
+    echo "Waiting for ${name} at ${url} (timeout=${timeout}s)..."
+    local elapsed=0
+    until curl -sf "$url" > /dev/null 2>&1; do
+        elapsed=$((elapsed + 2))
+        if [ "$elapsed" -ge "$timeout" ]; then
+            echo "FATAL: ${name} not ready after ${timeout}s" >&2
+            exit 1
+        fi
+        sleep 2
+    done
+    echo "${name} is ready."
+}
+
+# Proxy must be up before Chromium (which routes through it)
+if [ -n "${BOT_PROXY_HEALTH_URL:-}" ]; then
+    wait_for "proxy" "$BOT_PROXY_HEALTH_URL" "${BOT_PROXY_HEALTH_TIMEOUT:-60}"
+fi
+
+# Memory server must be up before the bot connects via MCP
+if [ -n "${BOT_MEMORY_HEALTH_URL:-}" ]; then
+    wait_for "memory-server" "$BOT_MEMORY_HEALTH_URL" "${BOT_MEMORY_HEALTH_TIMEOUT:-120}"
+fi
+
 # Start headless Chromium in background (Playwright-installed binary)
 CHROME_BIN=$(find "$PLAYWRIGHT_BROWSERS_PATH" -name chrome -type f | head -1)
 "$CHROME_BIN" \
