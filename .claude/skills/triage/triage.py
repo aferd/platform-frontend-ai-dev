@@ -10,6 +10,7 @@ import json
 import os
 import subprocess
 import sys
+import urllib.parse
 import urllib.request
 from pathlib import Path
 
@@ -117,17 +118,23 @@ def jira_issue(key):
         headers={"Authorization": f"Basic {auth}", "Accept": "application/json"}, timeout=15)
 
 
+def _parse_repo_path(url):
+    if ":" in url and "@" in url:
+        return url.split(":")[-1].replace(".git", "")
+    return "/".join(url.split("/")[-2:]).replace(".git", "")
+
+
 def upstream_repo(repo_name):
     try:
         repos = json.loads(PROJECT_REPOS.read_text())
         entry = repos.get(repo_name, {})
         up = entry.get("upstream", "")
-        if "github.com" in up:
-            path = up.split(":")[-1].replace(".git", "") if (":" in up and "@" in up) else "/".join(up.split("/")[-2:]).replace(".git", "")
-            return path, "github"
-        if "gitlab" in up:
-            path = up.split(":")[-1].replace(".git", "") if (":" in up and "@" in up) else "/".join(up.split("/")[-2:]).replace(".git", "")
-            return path, "gitlab"
+        parsed = urllib.parse.urlparse(up if "://" in up else f"ssh://{up}")
+        host = parsed.hostname or ""
+        if host == "github.com":
+            return _parse_repo_path(up), "github"
+        if host.endswith("gitlab.com") or host.endswith("gitlab.cee.redhat.com"):
+            return _parse_repo_path(up), "gitlab"
     except Exception:
         pass
     return "", entry.get("host", "github") if 'entry' in dir() else "github"
