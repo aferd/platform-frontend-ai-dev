@@ -371,6 +371,8 @@ objects:
             requests:
               cpu: "1"
               memory: 2Gi
+              ephemeral-storage: 4Gi
             limits:
               cpu: "4"
               memory: 4Gi
+              ephemeral-storage: 8Gi

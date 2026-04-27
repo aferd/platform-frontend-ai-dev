@@ -5,7 +5,9 @@ import argparse
 import asyncio
 import logging
 import os
+import shutil
 import signal
+import subprocess
 import sys
 import time
 from pathlib import Path
@@ -96,6 +98,56 @@ def setup_logging() -> None:
         datefmt=datefmt,
         handlers=handlers,
     )
+
+
+LOW_DISK_THRESHOLD_MB = 512
+
+
+def cleanup_between_cycles(script_dir: Path) -> None:
+    """Free disk space between cycles if below threshold."""
+    logger = logging.getLogger(__name__)
+
+    try:
+        usage = shutil.disk_usage(str(script_dir))
+        free_mb = usage.free // (1024 * 1024)
+    except OSError:
+        return
+
+    if free_mb >= LOW_DISK_THRESHOLD_MB:
+        logger.info("Disk OK: %dM free (threshold %dM)", free_mb, LOW_DISK_THRESHOLD_MB)
+        return
+
+    logger.warning("Low disk: %dM free (threshold %dM) — cleaning up", free_mb, LOW_DISK_THRESHOLD_MB)
+
+    for name, cmd in [
+        ("Go build cache", ["go", "clean", "-cache"]),
+        ("Go mod cache", ["go", "clean", "-modcache"]),
+        ("npm cache", ["npm", "cache", "clean", "--force"]),
+    ]:
+        try:
+            subprocess.run(cmd, capture_output=True, timeout=30)
+            logger.info("Cleaned %s", name)
+        except (subprocess.TimeoutExpired, FileNotFoundError):
+            pass
+
+    repos_dir = script_dir / "repos"
+    if repos_dir.exists():
+        for repo in repos_dir.iterdir():
+            if (repo / ".git").is_dir():
+                try:
+                    subprocess.run(
+                        ["git", "gc", "--auto", "--quiet"],
+                        cwd=str(repo), capture_output=True, timeout=60,
+                    )
+                except (subprocess.TimeoutExpired, FileNotFoundError):
+                    pass
+
+    try:
+        usage = shutil.disk_usage(str(script_dir))
+        free_mb = usage.free // (1024 * 1024)
+        logger.info("Cleanup done. Free space: %dM", free_mb)
+    except OSError:
+        pass
 
 
 def main() -> None:
@@ -195,6 +247,8 @@ def main() -> None:
             else:
                 no_work = False
                 logger.warning("Cycle produced no result")
+
+            cleanup_between_cycles(SCRIPT_DIR)
 
             if no_work:
                 logger.info(
