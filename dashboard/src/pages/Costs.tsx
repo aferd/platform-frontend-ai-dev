@@ -324,7 +324,7 @@ export default function Costs() {
                   outerRadius={80}
                   innerRadius={40}
                   paddingAngle={2}
-                  label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+                  label={({ name, percent }) => `${name} ${((percent ?? 0) * 100).toFixed(0)}%`}
                   labelLine={false}
                 >
                   {pieData.map((d, i) => <Cell key={i} fill={d.fill} />)}
@@ -386,10 +386,9 @@ export default function Costs() {
               <YAxis type="category" dataKey="key" stroke="var(--text-dim)" fontSize={11} width={130} tick={{ fill: 'var(--accent)' }} />
               <Tooltip
                 cursor={{ fill: 'rgba(255,255,255,0.03)' }}
-                content={({ active, payload, label }) => {
+                content={({ active, payload }) => {
                   if (!active || !payload?.length) return null;
                   const d = payload[0]?.payload;
-                  // Find which segment is hovered (first payload entry with non-zero value matching the hover)
                   const hoveredKey = payload.find(p => p.value && Number(p.value) > 0)?.dataKey;
                   return (
                     <div className="chart-tooltip">
